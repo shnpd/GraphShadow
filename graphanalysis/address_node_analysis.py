@@ -7,28 +7,7 @@ from matplotlib import pyplot as plt
 from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score
 
-from graphanalysis.sample_transaction import construct_graph_from_block
-
-
-# 文件缓存
-def load_data(
-        startId, endId,
-        cache_path="address_node_cache.pkl"
-):
-    if os.path.exists(cache_path):
-        print(f"从缓存文件加载数据: {cache_path}")
-        with open(cache_path, "rb") as f:
-            data = pickle.load(f)
-    else:
-        print("缓存不存在，开始重新采样...")
-        data = prepare_address_node_analysis(
-            construct_graph_from_block(startId, endId)
-        )
-        with open(cache_path, "wb") as f:
-            pickle.dump(data, f)
-        print(f"采样结果已保存至: {cache_path}")
-
-    return data
+from graphanalysis.sample_transaction import construct_graph_from_block, load_graph_cache
 
 
 def prepare_address_node_analysis(self):
@@ -42,7 +21,7 @@ def prepare_address_node_analysis(self):
         # if n == 0 or m == 0:
         #     continue
         # if  2 < n+m < 50:
-        results[n+m]+=1
+        results[n + m] += 1
     return dict(results)
 
 
@@ -153,6 +132,8 @@ def plot_bar_broken_axis_aggregated(data_dict):
     ax2.grid(axis='y', linestyle='--', alpha=0.5)
 
     plt.show()
+
+
 def fit_power_y_only(data_dict):
     # --- 1. 数据准备 (保持不变) ---
     x_data = np.array(sorted(data_dict.keys()))
@@ -199,7 +180,6 @@ def fit_power_y_only(data_dict):
     # C. 绘制拟合曲线
     ax.plot(x_smooth, y_smooth, color='#c44e52', linewidth=2, linestyle='--',
             label='Fitted function')
-
 
     # E. 图表细节
     ax.set_title('Address Node Centrality Fitting', fontsize=14, pad=15)
@@ -278,7 +258,10 @@ def plot_bar(data_dict):
     # plt.legend()
     plt.show()
 
+
 if __name__ == "__main__":
     # plot_bar_broken_axis_aggregated(prepare_address_node_analysis(construct_graph_from_block(928060,928070)))
     # plot_bar(load_data(928060,928070))
-    fit_power_y_only(load_data(928060,928070))
+    btg = load_graph_cache(928060, 928070, "address_cache.pkl")
+    data = prepare_address_node_analysis(btg)
+    fit_power_y_only(data)

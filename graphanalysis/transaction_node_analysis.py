@@ -4,6 +4,8 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+
+from graphanalysis.sample_transaction import load_graph_cache
 from sample_transaction import construct_graph_from_block
 import seaborn as sns
 import pandas as pd
@@ -65,27 +67,6 @@ def plot_heat_graph(X, Y, Z):
     # 显示
     plt.tight_layout()
     plt.show()
-
-# 文件缓存
-def load_data(
-        startId, endId,
-        cache_path="transaction_node_cache.pkl"
-):
-    if os.path.exists(cache_path):
-        print(f"从缓存文件加载数据: {cache_path}")
-        with open(cache_path, "rb") as f:
-            btg = pickle.load(f)
-    else:
-        print("缓存不存在，开始重新采样...")
-        btg = construct_graph_from_block(startId, endId)
-        with open(cache_path, "wb") as f:
-            pickle.dump(btg, f)
-        print(f"采样结果已保存至: {cache_path}")
-
-    return btg
-
-
-
 
 def fit_cutoff_power_law_2d_2(X, Y, Z):
     # 定义拟合函数
@@ -256,7 +237,7 @@ def prepare_data(self):
 if __name__ == "__main__":
     # fit_log_power_law_2d()
     # fit_cutoff_power_law_2d()
-    btg = load_data(928060, 928070)
+    btg = load_graph_cache(928060, 928070, "transaction_cache.pkl")
     X, Y, Z = prepare_data(btg)
     # X, Y, Z = prepare_data(
     #     construct_graph_from_block(928060, 928070)
