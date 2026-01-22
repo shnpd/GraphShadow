@@ -67,16 +67,13 @@ def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
               value = 该 n 下观测到的所有路径长度 l 的列表
     """
     results = defaultdict(list)
-
     print(f"开始采样分析，总交易池大小: {len(all_transactions)}")
-
     for target_size in scale_list:
         print(f"正在分析规模 N ≈ {target_size}...")
         for _ in range(samples_per_scale):
             # 防止采样规模超过交易池
             sample_size = min(target_size, len(all_transactions))
             sampled_txs = random.sample(all_transactions, sample_size)
-
             # 构建临时子图
             btg_temp = BitcoinTransactionGraph()
             for tx in sampled_txs:
@@ -85,13 +82,11 @@ def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
                     tx['input_addrs'],
                     tx['output_addrs']
                 )
-
             # 记录节点数与直径
             num_nodes = btg_temp.graph.number_of_nodes()
             if num_nodes > 1:
                 diameter = get_max_diameter(btg_temp)
                 results[num_nodes].append(diameter)
-
     return dict(results)
 
 
