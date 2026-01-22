@@ -74,17 +74,15 @@ def load_data(
     if os.path.exists(cache_path):
         print(f"从缓存文件加载数据: {cache_path}")
         with open(cache_path, "rb") as f:
-            X, Y, Z = pickle.load(f)
+            btg = pickle.load(f)
     else:
         print("缓存不存在，开始重新采样...")
-        X, Y, Z = prepare_data(
-            construct_graph_from_block(startId, endId)
-        )
+        btg = construct_graph_from_block(startId, endId)
         with open(cache_path, "wb") as f:
-            pickle.dump((X, Y, Z), f)
+            pickle.dump(btg, f)
         print(f"采样结果已保存至: {cache_path}")
 
-    return X, Y, Z
+    return btg
 
 
 
@@ -258,10 +256,11 @@ def prepare_data(self):
 if __name__ == "__main__":
     # fit_log_power_law_2d()
     # fit_cutoff_power_law_2d()
-    # X, Y, Z = load_data(928060, 928070)
-    X, Y, Z = prepare_data(
-        construct_graph_from_block(928060, 928070)
-    )
+    btg = load_data(928060, 928070)
+    X, Y, Z = prepare_data(btg)
+    # X, Y, Z = prepare_data(
+    #     construct_graph_from_block(928060, 928070)
+    # )
     # fit_cutoff_power_law_2d(X, Y, Z)
     fit_cutoff_power_law_2d_2(X, Y, Z)
 
