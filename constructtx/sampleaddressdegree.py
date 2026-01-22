@@ -13,7 +13,6 @@ class AddressCentralDegreeSampler:
         # 1. 生成所有可能的中心度值 x [min_x, ..., max_x]
         x_vals = np.arange(self.min_x, self.max_x + 1)
 
-
         # 2. 计算拟合函数值
         A, alpha = self.param["A"],self.param["alpha"]
         weights = A * x_vals ** alpha
