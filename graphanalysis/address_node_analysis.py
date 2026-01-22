@@ -17,12 +17,10 @@ def prepare_address_node_analysis(self):
             continue
         n = self.graph.in_degree(node)
         m = self.graph.out_degree(node)
-
-        # if n == 0 or m == 0:
-        #     continue
-        # if  2 < n+m < 50:
+        if n + m == 1:
+            continue
         results[n + m] += 1
-    return dict(results)
+    return dict(sorted(results.items()))
 
 
 def plot_bar_broken_axis_aggregated(data_dict):
@@ -140,8 +138,8 @@ def fit_power_y_only(data_dict):
     y_data = np.array([data_dict[x] for x in x_data])
 
     # --- 2. 定义模型 (保持不变) ---
-    def power_law_func(x, a, b):
-        return a * np.power(x, b)
+    def power_law_func(x, A, alpha):
+        return A * np.power(x, alpha)
 
     # --- 3. 拟合 (保持不变: 在原始空间拟合) ---
     # 依然是对原始 x_data 和 y_data 进行拟合，不取对数
@@ -153,13 +151,13 @@ def fit_power_y_only(data_dict):
         print("拟合失败，未能找到最优参数")
         return
 
-    a_fit, b_fit = popt
+    A_fit, alpha_fit = popt
 
     # 计算 R^2
-    y_pred = power_law_func(x_data, *popt)
+    y_pred = power_law_func(x_data, A_fit, alpha_fit)
     r2 = r2_score(y_data, y_pred)
 
-    print(f"拟合参数: a = {a_fit:.2f}, b = {b_fit:.2f}")
+    print(f"拟合参数: A = {A_fit:.2f}, alpha = {alpha_fit:.2f}")
     print(f"拟合优度 (R^2): {r2:.4f}")
 
     # --- 4. 绘图 (修改部分) ---
@@ -171,7 +169,7 @@ def fit_power_y_only(data_dict):
     # A. 生成平滑的曲线数据
     # 因为X轴依然是线性的，所以我们用 linspace
     x_smooth = np.linspace(min(x_data), max(x_data), 3000)
-    y_smooth = power_law_func(x_smooth, a_fit, b_fit)
+    y_smooth = power_law_func(x_smooth, A_fit, alpha_fit)
 
     # B. 绘制实际数据 (散点)
     ax.scatter(x_data, y_data, color='#003366', s=15, alpha=0.6,
@@ -264,4 +262,6 @@ if __name__ == "__main__":
     # plot_bar(load_data(928060,928070))
     btg = load_graph_cache(928060, 928070, "address_cache.pkl")
     data = prepare_address_node_analysis(btg)
+    print(data)
+    plot_bar(data)
     fit_power_y_only(data)
