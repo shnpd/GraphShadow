@@ -5,6 +5,7 @@ from sampleaddressdegree import AddressCentralDegreeSampler
 from plotgraph.main import BitcoinTransactionGraph
 from sampletxinout import TxInOutSampler
 from samplediameter import DiameterSampler
+from utils import generate_random_address
 
 
 def init_TxInOutSampler():
@@ -83,18 +84,66 @@ def calculate_addresscentrality_expectations(sampler):
     return expected_centrality
 
 
+def init_center_addresses(N_center, N_comm, centrality_sampler):
+    """
+        构造中心地址集并初始化状态
+
+        :param N_center: 中心地址总数
+        :param N_comm: 通信地址数量 (配额)
+        :param centrality_sampler: 初始化的 AddressCentralDegreeSampler 实例
+        :return: 中心地址状态列表
+        """
+    # 1. 生成地址 (使用 set 确保唯一性，防止极其罕见的碰撞)
+    central_address_list = []
+    while len(central_address_list) < N_center:
+        central_address_list.append(generate_random_address())
+
+    # 2. 采样目标中心度
+    # 直接采样 N_center 个数据
+    central_address_degree_list = []
+    while len(central_address_degree_list) < N_center:
+        sample_degree = int(centrality_sampler.sample()[0])
+        # 采样为2的中心度优先分配给通信地址
+        if sample_degree == 2 and N_comm > 0:
+            N_comm -= 1
+        else:
+            central_address_degree_list.append(sample_degree)
+
+    # 3. 初始化中心地址状态集合
+    central_address_states = []
+    for i in range(len(central_address_degree_list)):
+        state = {
+            'address': central_address_list[i],
+            'd_cur': 0,
+            'd_tgt': central_address_degree_list[i],
+            'bal': 1
+        }
+        central_address_states.append(state)
+    return central_address_states
+
+
 if __name__ == "__main__":
+    #  normal
+    # 计算utxo数量
+    N_utxo = calculate_utxos(1024 * 8)  # 1kB
+    # 计算交易期望输入输出数量
     txInOutSampler = init_TxInOutSampler()
-    Nutxo = calculate_utxos(1024 * 8)  # 1kB
     En, Em = calculate_txinout_expectations(txInOutSampler)
-    N1 = Nutxo / Em
-    N2 = Nutxo / En
-    Dtotal = (N1 * En + N2 * Em) * 1.2
+    # 计算交易数量
+    N_1 = N_utxo / Em
+    N_2 = N_utxo / En
+    # 计算中心地址集总度数需求
+    D_total = (N_1 * En + N_2 * Em) * 1.2
+    # 计算地址平均度
     addrCentralDegreeSampler = init_AddressCentralDegreeSampler()
     Ed = calculate_addresscentrality_expectations(addrCentralDegreeSampler)
-    Ncomm = Nutxo
-    Ncenter = (Dtotal + (2 - Ed) * Ncomm) / Ed
-    Size = N1 + N2 + Ncomm + Ncenter
+    # 计算地址数量
+    N_comm = N_utxo
+    N_center = (D_total + (2 - Ed) * N_comm) / Ed
+    # 计算交易图直径阈值
+    Size = N_1 + N_2 + N_comm + N_center
     diameterSampler = init_DiameterSampler()
-    DThres = diameterSampler.sample(Size,1)
-    print(DThres)
+    D_Thres = diameterSampler.sample(Size, 1)
+    # 初始化中心地址集状态
+    Central_addresses_state = init_center_addresses(N_center, N_comm, addrCentralDegreeSampler)
+    print(Central_addresses_state)

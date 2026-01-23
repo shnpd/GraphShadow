@@ -27,8 +27,6 @@ class AddressCentralDegreeSampler:
         :param size: 采样数量
         :return: 采样得到的中心度数组
         """
-        # np.random.choice 在 1D 情况下非常高效
-        # replace=True 表示允许重复抽样 (符合独立同分布)
         return np.random.choice(self.x_vals, size=size, p=self.probs)
 
 if __name__ == "__main__":
