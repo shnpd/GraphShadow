@@ -6,6 +6,8 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import json
 from collections import defaultdict
+
+import numpy as np
 import pandas as pd
 
 # 从数据文件或API加载数据的函数
@@ -22,9 +24,16 @@ def load_transactions_from_file(file_path):
 class BitcoinTransactionGraph:
     def __init__(self):
         """初始化比特币交易图"""
+        # 使用有向图
         self.graph = nx.DiGraph()
 
     def add_transaction(self, tx_id, inputs, outputs):
+        """
+        添加一笔交易
+        :param tx_id: 交易ID
+        :param inputs: 输入地址列表
+        :param outputs: 输出地址列表
+        """
         # 添加交易节点
         self.graph.add_node(tx_id, node_type='transaction')
 
@@ -37,6 +46,42 @@ class BitcoinTransactionGraph:
         for addr in outputs:
             self.graph.add_node(addr, node_type='address')
             self.graph.add_edge(tx_id, addr, direction='output')
+
+    def remove_transaction(self, tx_id):
+        """回滚交易：删除交易节点及相关边，清理孤立节点"""
+        if tx_id not in self.graph:
+            return
+
+        # 记录邻居以便检查孤立节点
+        neighbors = list(self.graph.predecessors(tx_id)) + list(self.graph.successors(tx_id))
+        self.graph.remove_node(tx_id)
+
+        # 清理孤立的地址节点 (度为0)
+        for node in neighbors:
+            if node in self.graph and self.graph.degree(node) == 0:
+                self.graph.remove_node(node)
+
+
+    def calculate_diameter(self):
+        """使用 Floyd-Warshall 计算图直径 (包含你的代码逻辑)"""
+        # 1. 边界情况
+        if self.graph.number_of_nodes() == 0:
+            return 0
+
+        # 2. 计算全点对最短路径矩阵
+        # 返回 numpy matrix, 不可达为 inf
+        dist_matrix = nx.floyd_warshall_numpy(self.graph)
+
+        # 3. 过滤有效值
+        mask = np.isfinite(dist_matrix)
+        finite_distances = dist_matrix[mask]
+
+        # 4. 取最大值
+        if len(finite_distances) > 0:
+            return int(np.max(finite_distances))
+        else:
+            return 0
+
 
 
     def visualize(self):

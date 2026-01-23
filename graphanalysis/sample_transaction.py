@@ -2,7 +2,7 @@ import json
 import os
 import pickle
 
-from plotgraph.main import BitcoinTransactionGraph
+from txgraph.main import BitcoinTransactionGraph
 
 
 # 从数据文件或API加载数据的函数

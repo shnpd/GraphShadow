@@ -2,10 +2,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from sampleaddressdegree import AddressCentralDegreeSampler
-from plotgraph.main import BitcoinTransactionGraph
+from txgraph.main import BitcoinTransactionGraph
 from sampletxinout import TxInOutSampler
 from samplediameter import DiameterSampler
-from utils import generate_random_address
+import utils
 
 
 def init_TxInOutSampler():
@@ -96,7 +96,7 @@ def init_center_addresses(N_center, N_comm, centrality_sampler):
     # 1. 生成地址 (使用 set 确保唯一性，防止极其罕见的碰撞)
     central_address_list = []
     while len(central_address_list) < N_center:
-        central_address_list.append(generate_random_address())
+        central_address_list.append(utils.generate_random_address())
 
     # 2. 采样目标中心度
     # 直接采样 N_center 个数据
@@ -120,6 +120,99 @@ def init_center_addresses(N_center, N_comm, centrality_sampler):
         }
         central_address_states.append(state)
     return central_address_states
+
+
+def generate_transaction(tx_sampler, central_states, graph, diameter_threshold):
+    """
+    构造单笔交易并进行直径约束检查
+    :param tx_sampler: TxInOutSampler 实例，用于采样 n, m
+    :param central_states: 中心地址状态列表 (list of dict)，将被原地修改
+                           结构: [{'address':.., 'bal':.., 'd_cur':.., 'd_tgt':..}, ...]
+    :param graph: BitcoinTransactionGraph 实例，需支持 add/remove_transaction 和 calculate_diameter
+    :param diameter_threshold: 图直径阈值 (int)
+    :return: 成功返回交易字典 {'txid', 'inputs', 'outputs', 'diameter'}，失败返回 None
+    """
+    tx_id = utils.generate_tx_id()
+    # 1. 采样输入输出数量 (n, m)
+    n, m = tx_sampler.sample(size=1)[0]
+
+    # 2. 筛选与动态加权选择发送地址 (Inputs)
+    selected_indices = []
+
+    # 用于记录本轮交易中状态的临时变更 (index, delta_bal, delta_d_cur)
+    # 目的：在循环选择 n 个地址时，后续的选择必须感知到前面的选择导致的状态变化
+    # 但在直径检查通过前，不能真正修改 central_states
+    temp_changes = []
+
+    # 选择n个中心地址作为发送地址
+    for _ in range(n):
+        candidates = []
+        weights = []
+
+        # 遍历所有中心地址计算权重
+        for idx, state in enumerate(central_states):
+            # 获取当前的基础状态
+            curr_bal = state['bal']
+            curr_d_cur = state['d_cur']
+
+            # 叠加本轮已发生的临时变更
+            for c_idx, d_bal, d_d_cur in temp_changes:
+                if c_idx == idx:
+                    curr_bal += d_bal
+                    curr_d_cur += d_d_cur
+
+            # 后选地址余额必须 > 0
+            if curr_bal > 0:
+                # 计算权重 W = d_tgt - d_cur
+                w = state['d_tgt'] - curr_d_cur
+                candidates.append(idx)
+                weights.append(w)
+
+        # 如果候选集为空（没有钱了），则本笔交易无法构建
+        if not candidates:
+            print(f"  [失败] 交易 {tx_id}: 可用中心地址不足，无法凑齐 {n} 个输入")
+            return None
+
+        # 归一化权重
+        weights = np.array(weights)
+        probs = weights / weights.sum()
+
+        # 加权采样一个地址索引
+        chosen_idx = np.random.choice(candidates, p=probs)
+        selected_indices.append(chosen_idx)
+
+        # 记录临时变更：选中后 bal-1, d_cur+1
+        temp_changes.append((chosen_idx, -1, 1))
+
+    # 3. 生成接收地址
+    # 提取发送地址字符串
+    inputs = [central_states[i]['address'] for i in selected_indices]
+    # 生成新的接收地址
+    outputs = [utils.generate_random_address() for _ in range(m)]
+
+    # 4. 图更新与直径检查 (Check)
+    # 4.1 预添加交易到图中 (Snapshot 思想)
+    graph.add_transaction(tx_id, inputs, outputs)
+    # 4.2 计算添加后的图直径
+    current_diameter = graph.calculate_diameter()
+    # 4.3 判断阈值
+    if current_diameter > diameter_threshold:
+        print(f"  [回滚] 交易 {tx_id} 直径 {current_diameter} > 阈值 {diameter_threshold}")
+        graph.remove_transaction(tx_id)
+        return None
+
+    else:
+        print(f"  [成功] 交易 {tx_id} 直径 {current_diameter}")
+        # 【关键】真正提交状态更新到 central_states
+        for idx, d_bal, d_d_cur in temp_changes:
+            central_states[idx]['bal'] += d_bal  # 余额减少
+            central_states[idx]['d_cur'] += d_d_cur  # 当前度增加
+        return {
+            'txid': tx_id,
+            'inputs': inputs,
+            'outputs': outputs,
+            'diameter': current_diameter
+        }
 
 
 if __name__ == "__main__":
@@ -146,4 +239,7 @@ if __name__ == "__main__":
     D_Thres = diameterSampler.sample(Size, 1)
     # 初始化中心地址集状态
     Central_addresses_state = init_center_addresses(N_center, N_comm, addrCentralDegreeSampler)
-    print(Central_addresses_state)
+    btg = BitcoinTransactionGraph()
+    for _ in range(30):
+        generate_transaction(txInOutSampler, Central_addresses_state,btg, D_Thres)
+    btg.visualize()

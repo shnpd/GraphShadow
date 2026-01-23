@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 
 # from graphanalysis.sample_transaction import construct_graph_from_block, load_transactions_from_file
-from plotgraph.main import BitcoinTransactionGraph
+from txgraph.main import BitcoinTransactionGraph
 import sample_transaction
 
 import os

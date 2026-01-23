@@ -1,7 +1,7 @@
 import numpy as np
 import networkx as nx
 
-from plotgraph.main import BitcoinTransactionGraph
+from txgraph.main import BitcoinTransactionGraph
 
 
 def check(self):

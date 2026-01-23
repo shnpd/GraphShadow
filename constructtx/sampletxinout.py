@@ -88,7 +88,7 @@ class TxInOutSampler:
 
         return np.column_stack((samples_n, samples_m))
 
-    def P_tx(self, size=1):
+    def sample(self, size=1):
         """
         混合采样：主入口
         逻辑：以概率 lambda 选择 P_discrete，以概率 (1-lambda) 选择 P_continuous
@@ -130,5 +130,5 @@ if __name__ == "__main__":
     lambda_mix = (15796 + 11722) / (15796 + 11722 + 3394)
     # lambda_mix = 0.5
     sampler = TxInOutSampler(discrete_date, continuous_params, lambda_mix, max_range=5)
-    samples = sampler.P_tx(size=5)
+    samples = sampler.sample(size=1)
     print(samples)
