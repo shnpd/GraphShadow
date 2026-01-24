@@ -122,9 +122,9 @@ def init_center_addresses(N_center, N_comm, centrality_sampler):
     return central_address_states
 
 
-def generate_transaction(tx_sampler, central_states, graph, diameter_threshold):
+def construct_token_distribute_transaction(tx_sampler, central_states, graph, diameter_threshold):
     """
-    构造单笔交易并进行直径约束检查
+    构造代币分配交易，中心地址->通信地址
     :param tx_sampler: TxInOutSampler 实例，用于采样 n, m
     :param central_states: 中心地址状态列表 (list of dict)，将被原地修改
                            结构: [{'address':.., 'bal':.., 'd_cur':.., 'd_tgt':..}, ...]
@@ -197,12 +197,12 @@ def generate_transaction(tx_sampler, central_states, graph, diameter_threshold):
     current_diameter = graph.calculate_diameter()
     # 4.3 判断阈值
     if current_diameter > diameter_threshold:
-        print(f"  [回滚] 交易 {tx_id} 直径 {current_diameter} > 阈值 {diameter_threshold}")
+        # print(f"  [回滚] 交易 {tx_id} 直径 {current_diameter} > 阈值 {diameter_threshold}")
         graph.remove_transaction(tx_id)
         return None
 
     else:
-        print(f"  [成功] 交易 {tx_id} 直径 {current_diameter}")
+        # print(f"  [成功] 交易 {tx_id} 直径 {current_diameter}")
         # 【关键】真正提交状态更新到 central_states
         for idx, d_bal, d_d_cur in temp_changes:
             central_states[idx]['bal'] += d_bal  # 余额减少
@@ -211,7 +211,6 @@ def generate_transaction(tx_sampler, central_states, graph, diameter_threshold):
             'txid': tx_id,
             'inputs': inputs,
             'outputs': outputs,
-            'diameter': current_diameter
         }
 
 
@@ -240,6 +239,7 @@ if __name__ == "__main__":
     # 初始化中心地址集状态
     Central_addresses_state = init_center_addresses(N_center, N_comm, addrCentralDegreeSampler)
     btg = BitcoinTransactionGraph()
-    for _ in range(30):
-        generate_transaction(txInOutSampler, Central_addresses_state,btg, D_Thres)
+    for _ in range(10):
+        construct_token_distribute_transaction(txInOutSampler, Central_addresses_state,btg, D_Thres)
+    # btg.get_graph_info()
     btg.visualize()

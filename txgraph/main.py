@@ -10,6 +10,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+
 # 从数据文件或API加载数据的函数
 def load_transactions_from_file(file_path):
     """
@@ -61,7 +62,6 @@ class BitcoinTransactionGraph:
             if node in self.graph and self.graph.degree(node) == 0:
                 self.graph.remove_node(node)
 
-
     def calculate_diameter(self):
         """使用 Floyd-Warshall 计算图直径 (包含你的代码逻辑)"""
         # 1. 边界情况
@@ -82,11 +82,13 @@ class BitcoinTransactionGraph:
         else:
             return 0
 
-
-
     def visualize(self):
+        # ✅ 1. 设置中文字体 (Windows下通常使用 SimHei)
+        plt.rcParams['font.sans-serif'] = ['SimHei']
+        # ✅ 2. 解决负号 '-' 显示为方块的问题
+        plt.rcParams['axes.unicode_minus'] = False
         plt.figure(figsize=(8, 8))
-        Grepulsiveforce =0.1
+        Grepulsiveforce = 0.1
         Goverlap_scaling = 1
         pos = nx.nx_agraph.pygraphviz_layout(
             self.graph,
@@ -198,11 +200,9 @@ class BitcoinTransactionGraph:
 
         return dict(in_degree_dist)
 
+
 # 在创建图表前调用
 if __name__ == "__main__":
-    plt.rcParams['font.sans-serif'] = ['SimHei']
-    plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题`
-
     all_transactions = []
     # 统计10个区块
     for i in range(928050, 928060):
@@ -224,4 +224,3 @@ if __name__ == "__main__":
     btg.get_graph_info()
     btg.visualize()
     # btg.analyze_degree_distribution()
-
