@@ -221,6 +221,7 @@ if __name__ == "__main__":
     btg = BitcoinTransactionGraph()
     for tx in all_transactions:
         btg.add_transaction(tx['hash'], tx['input_addrs'], tx['output_addrs'])
+    btg.calculate_diameter()
     btg.get_graph_info()
     btg.visualize()
     # btg.analyze_degree_distribution()
