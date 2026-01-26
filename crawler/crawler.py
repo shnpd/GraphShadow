@@ -59,6 +59,7 @@ def save_block_transaction(startId, endId):
             'number': str(i),
             'link': f"/explorer/blocks/btc/{i}"
         })
+    MAX_RETRIES = 5
     # ============================== 交易数据获取（改为 API 一次性获取） ==============================
     for idx, blk in enumerate(all_blocks, start=1):
         file_path = f"../dataset/transactions_block_{blk['number']}.json"
@@ -66,16 +67,32 @@ def save_block_transaction(startId, endId):
         if os.path.exists(file_path):
             print(f"{file_path} 文件已存在，跳过获取。")
             continue
-        try:
-            all_transactions = fetch_block_transactions(blk['number'])
-            # 每个区块处理完都保存一次，防止丢失
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(all_transactions, f, ensure_ascii=False)
-            print(f"[{idx}/{len(all_blocks)}] 已保存至 transactions_block_{blk['number']}.json")
-            time.sleep(random.uniform(1, 3))
-        except Exception as e:
-            print(f"处理区块 {blk['number']} 时失败：{e}")
-            continue
+
+        # === 开始重试逻辑 ===
+        success = False
+        for attempt in range(MAX_RETRIES):
+            try:
+                # 尝试获取数据
+                all_transactions = fetch_block_transactions(blk['number'])
+                # 每个区块处理完都保存一次，防止丢失
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(all_transactions, f, ensure_ascii=False)
+                print(f"[{idx}/{len(all_blocks)}] 已保存至 transactions_block_{blk['number']}.json")
+                # 成功后标记并退出重试循环
+                success = True
+                break
+            except Exception as e:
+                # 捕获错误，打印提示
+                wait_time = (attempt + 1) * 5  # 失败次数越多，等待时间越长 (5s, 10s, 15s...)
+                print(f"⚠️ 处理区块 {blk['number']} 失败 (第 {attempt + 1}/{MAX_RETRIES} 次重试): {e}")
+                print(f"   将在 {wait_time} 秒后重试...")
+                time.sleep(wait_time)
+        # === 重试多次依然失败的处理 ===
+        if not success:
+            print(f"❌ 严重错误：区块 {blk['number']} 在重试 {MAX_RETRIES} 次后依然失败，程序终止。")
+            # 建议直接 break 停止程序，防止产生大量断点；或者记录到 log 文件后 continue
+            break
+        time.sleep(random.uniform(1, 3))
 
 def get_blockId_list():
     global all_blocks, f
@@ -136,7 +153,7 @@ if __name__ == "__main__":
 
     # get_blockId_list()
 
-    save_block_transaction(927000, 927001)
+    # save_block_transaction(927000, 927001)
 
 # # 最终以行分隔格式保存所有交易
 # with open("all_blocks_transactions_lines.json", "w", encoding="utf-8") as f:

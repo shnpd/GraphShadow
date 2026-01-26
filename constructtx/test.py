@@ -52,9 +52,12 @@ def weighted_random_choice(items, weights, num_selections=100):
 
 
 if __name__ == "__main__":
-    btg = BitcoinTransactionGraph()
-    btg.add_transaction('1',['a'],['b'])
-    btg.add_transaction('2',['b'],['a'])
-    btg.add_transaction('3',['a'],['c'])
-    btg.add_transaction('4',['c'],['a'])
-    print(get_max_diameter(btg))
+    tmp = [2,1,3]
+    tmp.sort()
+    print(tmp)
+    # btg = BitcoinTransactionGraph()
+    # btg.add_transaction('1',['a'],['b'])
+    # btg.add_transaction('2',['b'],['a'])
+    # btg.add_transaction('3',['a'],['c'])
+    # btg.add_transaction('4',['c'],['a'])
+    # print(get_max_diameter(btg))
