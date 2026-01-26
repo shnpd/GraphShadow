@@ -2,18 +2,7 @@ import json
 import os
 import pickle
 
-from txgraph.main import BitcoinTransactionGraph
-
-
-# 从数据文件或API加载数据的函数
-def load_transactions_from_file(file_path):
-    """
-    从文件加载交易
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        transactions = json.load(f)
-    print(f"✓ 从 {file_path} 成功加载 {len(transactions)} 笔交易")
-    return transactions
+from txgraph.main import BitcoinTransactionGraph, load_transactions_from_file
 
 
 def construct_graph_from_block(startId, endId):

@@ -10,9 +10,8 @@ from sklearn.metrics import r2_score
 import pandas as pd
 import seaborn as sns
 
-# from graphanalysis.sample_transaction import construct_graph_from_block, load_transactions_from_file
+from graphanalysis import sample_transaction
 from txgraph.main import BitcoinTransactionGraph
-import sample_transaction
 
 import os
 import pickle
@@ -49,12 +48,15 @@ def get_max_diameter(btg):
     G = btg.graph
     if len(G) == 0:
         return 0
-    max_distance = 0
+    max_distance = []
+    # 遍历每个节点，计算每个节点到其他节点的距离
     for source, dist_map in nx.shortest_path_length(G):
         if dist_map:
+            # 保存source到其他节点距离的最大值
             current_max = max(dist_map.values())
-            if current_max > max_distance:
-                max_distance = current_max
+            max_distance.append(current_max)
+            # if current_max > max_distance:
+            #     max_distance = current_max
     return max_distance
 
 
