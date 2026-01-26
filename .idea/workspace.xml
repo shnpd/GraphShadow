@@ -4,15 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="47f2f48a-3c2a-4edc-a9f0-b54d2b74aac8" name="Changes" comment="交易构造方法实现&amp;交易图类改造">
-      <change afterPath="$PROJECT_DIR$/graphanalysis/diameter_analysis.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crawler/blocks_info.json" beforeDir="false" afterPath="$PROJECT_DIR$/crawler/blocks_info.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crawler/crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/crawler/crawler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/graphanalysis/diameter_cache.pkl" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/graphanalysis/path_length.py" beforeDir="false" afterPath="$PROJECT_DIR$/graphanalysis/path_length.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/graphanalysis/sample_transaction.py" beforeDir="false" afterPath="$PROJECT_DIR$/graphanalysis/sample_transaction.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/graphanalysis/sampled_elements.json" beforeDir="false" />
+    <list default="true" id="47f2f48a-3c2a-4edc-a9f0-b54d2b74aac8" name="Changes" comment="更新交易图直径分析方法">
+      <change afterPath="$PROJECT_DIR$/graphanalysis/cache/graph_cache_927000to927001.pkl" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -68,7 +61,7 @@
     "Python.crawler (1).executor": "Run",
     "Python.crawler (2).executor": "Run",
     "Python.crawler.executor": "Run",
-    "Python.diameter_analysis.executor": "Debug",
+    "Python.diameter_analysis.executor": "Run",
     "Python.function (1).executor": "Run",
     "Python.function.executor": "Run",
     "Python.main (1).executor": "Debug",
@@ -279,7 +272,7 @@
       <workItem from="1769074979066" duration="218000" />
       <workItem from="1769075376015" duration="22023000" />
       <workItem from="1769345541451" duration="136000" />
-      <workItem from="1769407504667" duration="6898000" />
+      <workItem from="1769407504667" duration="7452000" />
     </task>
     <task id="LOCAL-00001" summary="init">
       <option name="closed" value="true" />
@@ -369,7 +362,15 @@
       <option name="project" value="LOCAL" />
       <updated>1769156476572</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="更新交易图直径分析方法">
+      <option name="closed" value="true" />
+      <created>1769414701394</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1769414701394</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -398,7 +399,8 @@
     <MESSAGE value="交易构造初始化阶段实现" />
     <MESSAGE value="中心地址集初始化实现" />
     <MESSAGE value="交易构造方法实现&amp;交易图类改造" />
-    <option name="LAST_COMMIT_MESSAGE" value="交易构造方法实现&amp;交易图类改造" />
+    <MESSAGE value="更新交易图直径分析方法" />
+    <option name="LAST_COMMIT_MESSAGE" value="更新交易图直径分析方法" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -479,7 +481,7 @@
     <SUITE FILE_PATH="coverage/BlockchainGraph$main.coverage" NAME="main Coverage Results" MODIFIED="1768998186147" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plotgraph" />
     <SUITE FILE_PATH="coverage/GraphShadow$sampleaddressdegree.coverage" NAME="sampleaddressdegree Coverage Results" MODIFIED="1769077402226" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/constructtx" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$transaction_node_analysis.coverage" NAME="transaction_node_analysis Coverage Results" MODIFIED="1768801005723" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AnalysisGraph" />
-    <SUITE FILE_PATH="coverage/GraphShadow$diameter_analysis.coverage" NAME="diameter_analysis Coverage Results" MODIFIED="1769414388961" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
+    <SUITE FILE_PATH="coverage/GraphShadow$diameter_analysis.coverage" NAME="diameter_analysis Coverage Results" MODIFIED="1769414637007" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
     <SUITE FILE_PATH="coverage/GraphShadow$transaction_node_analysis__1_.coverage" NAME="transaction_node_analysis Coverage Results" MODIFIED="1769067360638" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
     <SUITE FILE_PATH="coverage/GraphShadow$sampletxinout.coverage" NAME="sampletxinout Coverage Results" MODIFIED="1769155763481" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/constructtx" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$main__2_.coverage" NAME="main (2) Coverage Results" MODIFIED="1765868773121" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
