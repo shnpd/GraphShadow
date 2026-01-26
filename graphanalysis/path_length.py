@@ -45,6 +45,7 @@ def get_max_diameter(btg):
     """
     计算图中任意两个可达节点之间经过的最小边数的最大值。
     """
+    print("-------------------开始计算交易图各节点的最大可达距离列表-------------------")
     G = btg.graph
     if len(G) == 0:
         return 0
@@ -57,6 +58,8 @@ def get_max_diameter(btg):
             max_distance.append(current_max)
             # if current_max > max_distance:
             #     max_distance = current_max
+    print("-------------------结束计算交易图各节点的最大可达距离列表-------------------")
+
     return max_distance
 
 

@@ -4,11 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="47f2f48a-3c2a-4edc-a9f0-b54d2b74aac8" name="Changes" comment="更新交易文件">
+    <list default="true" id="47f2f48a-3c2a-4edc-a9f0-b54d2b74aac8" name="Changes" comment="更新交易直径统计">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/constructtx/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/constructtx/test.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/crawler/crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/crawler/crawler.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/graphanalysis/diameter_analysis.py" beforeDir="false" afterPath="$PROJECT_DIR$/graphanalysis/diameter_analysis.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/graphanalysis/path_length.py" beforeDir="false" afterPath="$PROJECT_DIR$/graphanalysis/path_length.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -64,7 +65,7 @@
     "Python.crawler (1).executor": "Run",
     "Python.crawler (2).executor": "Run",
     "Python.crawler.executor": "Run",
-    "Python.diameter_analysis.executor": "Run",
+    "Python.diameter_analysis.executor": "Debug",
     "Python.function (1).executor": "Run",
     "Python.function.executor": "Run",
     "Python.main (1).executor": "Debug",
@@ -106,7 +107,7 @@
       <recent name="$PROJECT_DIR$/dataset" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.diameter_analysis">
+  <component name="RunManager" selected="Python.test">
     <configuration name="constructTx" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="GraphShadow" />
       <option name="ENV_FILES" value="" />
@@ -231,8 +232,8 @@
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.diameter_analysis" />
         <item itemvalue="Python.test" />
+        <item itemvalue="Python.diameter_analysis" />
         <item itemvalue="Python.crawler" />
         <item itemvalue="Python.constructTx" />
         <item itemvalue="Python.sampletxinout" />
@@ -275,7 +276,7 @@
       <workItem from="1769074979066" duration="218000" />
       <workItem from="1769075376015" duration="22023000" />
       <workItem from="1769345541451" duration="136000" />
-      <workItem from="1769407504667" duration="12987000" />
+      <workItem from="1769407504667" duration="16530000" />
     </task>
     <task id="LOCAL-00001" summary="init">
       <option name="closed" value="true" />
@@ -381,7 +382,15 @@
       <option name="project" value="LOCAL" />
       <updated>1769415271457</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="更新交易直径统计">
+      <option name="closed" value="true" />
+      <created>1769421229515</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1769421229515</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -412,7 +421,8 @@
     <MESSAGE value="交易构造方法实现&amp;交易图类改造" />
     <MESSAGE value="更新交易图直径分析方法" />
     <MESSAGE value="更新交易文件" />
-    <option name="LAST_COMMIT_MESSAGE" value="更新交易文件" />
+    <MESSAGE value="更新交易直径统计" />
+    <option name="LAST_COMMIT_MESSAGE" value="更新交易直径统计" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -424,12 +434,12 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/graphanalysis/path_length.py</url>
-          <line>404</line>
+          <line>407</line>
           <option name="timeStamp" value="46" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/graphanalysis/path_length.py</url>
-          <line>227</line>
+          <line>230</line>
           <option name="timeStamp" value="49" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
@@ -459,18 +469,13 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/constructtx/test.py</url>
-          <line>62</line>
+          <line>65</line>
           <option name="timeStamp" value="84" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/graphanalysis/diameter_analysis.py</url>
-          <line>93</line>
+          <line>86</line>
           <option name="timeStamp" value="85" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/graphanalysis/diameter_analysis.py</url>
-          <line>24</line>
-          <option name="timeStamp" value="86" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
@@ -487,7 +492,7 @@
     <SUITE FILE_PATH="coverage/GraphShadow$path_length.coverage" NAME="path_length Coverage Results" MODIFIED="1769058907591" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
     <SUITE FILE_PATH="coverage/GraphShadow$crawler.coverage" NAME="crawler Coverage Results" MODIFIED="1769413057012" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/crawler" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$function__1_.coverage" NAME="function (1) Coverage Results" MODIFIED="1767679700759" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/GraphShadow$test.coverage" NAME="test Coverage Results" MODIFIED="1769420243443" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/constructtx" />
+    <SUITE FILE_PATH="coverage/GraphShadow$test.coverage" NAME="test Coverage Results" MODIFIED="1769428413066" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/constructtx" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$main__1_.coverage" NAME="main (1) Coverage Results" MODIFIED="1765878834979" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$crawler.coverage" NAME="crawler Coverage Results" MODIFIED="1765798449480" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$address_node_analysis.coverage" NAME="address_node_analysis Coverage Results" MODIFIED="1768802968478" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AnalysisGraph" />
@@ -498,7 +503,7 @@
     <SUITE FILE_PATH="coverage/BlockchainGraph$main.coverage" NAME="main Coverage Results" MODIFIED="1768998186147" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/plotgraph" />
     <SUITE FILE_PATH="coverage/GraphShadow$sampleaddressdegree.coverage" NAME="sampleaddressdegree Coverage Results" MODIFIED="1769077402226" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/constructtx" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$transaction_node_analysis.coverage" NAME="transaction_node_analysis Coverage Results" MODIFIED="1768801005723" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AnalysisGraph" />
-    <SUITE FILE_PATH="coverage/GraphShadow$diameter_analysis.coverage" NAME="diameter_analysis Coverage Results" MODIFIED="1769421169994" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
+    <SUITE FILE_PATH="coverage/GraphShadow$diameter_analysis.coverage" NAME="diameter_analysis Coverage Results" MODIFIED="1769427642042" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
     <SUITE FILE_PATH="coverage/GraphShadow$transaction_node_analysis__1_.coverage" NAME="transaction_node_analysis Coverage Results" MODIFIED="1769067360638" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/graphanalysis" />
     <SUITE FILE_PATH="coverage/GraphShadow$sampletxinout.coverage" NAME="sampletxinout Coverage Results" MODIFIED="1769155763481" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/constructtx" />
     <SUITE FILE_PATH="coverage/BlockchainGraph$main__2_.coverage" NAME="main (2) Coverage Results" MODIFIED="1765868773121" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

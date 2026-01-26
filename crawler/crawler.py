@@ -19,7 +19,7 @@ def fetch_block_transactions(block_number):
     block_data = resp.json()
 
     tx_list = block_data.get("tx", [])
-    print(f"区块 {block_number}（{block_number}）共含 {len(tx_list)} 笔交易，开始处理...")
+    print(f"区块 {block_number} 共含 {len(tx_list)} 笔交易，开始保存。")
     for tx in tx_list:
         all_transactions.append(extract_transaction_field(tx))
     return all_transactions
@@ -73,11 +73,12 @@ def save_block_transaction(startId, endId):
         for attempt in range(MAX_RETRIES):
             try:
                 # 尝试获取数据
+                print(f"开始爬去 {blk['number']} 区块的交易。")
                 all_transactions = fetch_block_transactions(blk['number'])
                 # 每个区块处理完都保存一次，防止丢失
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(all_transactions, f, ensure_ascii=False)
-                print(f"[{idx}/{len(all_blocks)}] 已保存至 transactions_block_{blk['number']}.json")
+                print(f"区块 {blk['number']} 已保存至文件 transactions_block_{blk['number']}.json")
                 # 成功后标记并退出重试循环
                 success = True
                 break

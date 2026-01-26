@@ -4,6 +4,7 @@ from collections import Counter
 import numpy as np
 
 from constructtx.utils import generate_random_address
+from crawler.crawler import save_block_transaction
 from graphanalysis.path_length import get_max_diameter
 from txgraph.main import BitcoinTransactionGraph
 
@@ -52,9 +53,11 @@ def weighted_random_choice(items, weights, num_selections=100):
 
 
 if __name__ == "__main__":
-    tmp = [2,1,3]
-    tmp.sort()
-    print(tmp)
+    # tmp = [2,1,3]
+    # tmp.sort()
+    # print(tmp)
+    save_block_transaction(923800, 923900)
+
     # btg = BitcoinTransactionGraph()
     # btg.add_transaction('1',['a'],['b'])
     # btg.add_transaction('2',['b'],['a'])
