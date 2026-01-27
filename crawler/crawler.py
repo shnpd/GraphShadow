@@ -73,7 +73,7 @@ def save_block_transaction(startId, endId):
         for attempt in range(MAX_RETRIES):
             try:
                 # 尝试获取数据
-                print(f"开始爬去 {blk['number']} 区块的交易。")
+                print(f"开始爬取 {blk['number']} 区块的交易。")
                 all_transactions = fetch_block_transactions(blk['number'])
                 # 每个区块处理完都保存一次，防止丢失
                 with open(file_path, "w", encoding="utf-8") as f:

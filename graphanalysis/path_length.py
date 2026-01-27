@@ -41,7 +41,7 @@ def load_or_collect_diameter_data(
     return data
 
 
-def get_max_diameter(btg):
+def get_node_distance_list(btg):
     """
     计算图中任意两个可达节点之间经过的最小边数的最大值。
     """
@@ -90,7 +90,7 @@ def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
             # 记录节点数与直径
             num_nodes = btg_temp.graph.number_of_nodes()
             if num_nodes > 1:
-                diameter = get_max_diameter(btg_temp)
+                diameter = get_node_distance_list(btg_temp)
                 results[num_nodes].append(diameter)
     return dict(results)
 

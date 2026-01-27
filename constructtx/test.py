@@ -5,7 +5,7 @@ import numpy as np
 
 from constructtx.utils import generate_random_address
 from crawler.crawler import save_block_transaction
-from graphanalysis.path_length import get_max_diameter
+from graphanalysis.path_length import get_node_distance_list
 from txgraph.main import BitcoinTransactionGraph
 
 
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     # tmp = [2,1,3]
     # tmp.sort()
     # print(tmp)
-    save_block_transaction(923800, 923900)
+    save_block_transaction(923900, 924000)
 
     # btg = BitcoinTransactionGraph()
     # btg.add_transaction('1',['a'],['b'])
