@@ -10,12 +10,12 @@ from sklearn.metrics import r2_score
 import pandas as pd
 import seaborn as sns
 
-from graphanalysis import sample_transaction
+import sample_transaction
 from txgraph.main import BitcoinTransactionGraph
 
 import os
 import pickle
-
+import igraph as ig
 
 def load_or_collect_diameter_data(
         all_transactions,
@@ -62,6 +62,37 @@ def get_node_distance_list(btg):
 
     return max_distance
 
+def get_node_distance_list_igraph(btg):
+    print("---开始计算（igraph加速版）---")
+    nx_graph = btg.graph
+    
+    if len(nx_graph) == 0:
+        return []
+
+    # 1. 将 NetworkX 图转换为 igraph 对象
+    # 如果追求极致速度，建议在数据加载阶段直接构建 igraph，避免转换开销
+    g = ig.Graph.from_networkx(nx_graph)
+    
+    # 2. 计算所有节点的最短路径矩阵
+    # mode='out' 表示遵循有向边的方向
+    # result 是一个二维列表 (Matrix)
+    shortest_paths = g.shortest_paths(mode='out')
+    
+    max_distances = []
+    
+    # 3. 处理结果
+    for dist_list in shortest_paths:
+        # 过滤掉 float('inf')，因为不可达的距离在 igraph 中表示为 inf
+        valid_dists = [d for d in dist_list if d != float('inf')]
+        
+        if valid_dists:
+            max_distances.append(max(valid_dists))
+        else:
+            # 如果该节点到任何其他节点都不可达（除了自己），视具体需求处理，这里设为0
+            max_distances.append(0)
+            
+    print("---结束计算---")
+    return max_distances
 
 def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
     """

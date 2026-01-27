@@ -1,127 +1,149 @@
-import concurrent
 import json
-import os
-import random
-from collections import defaultdict
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 
-from crawler.crawler import save_block_transaction
-# from crawler.crawler import save_block_transaction
-from graphanalysis.path_length import get_node_distance_list
-from graphanalysis.sample_transaction import load_transactions_from_file, load_graph_cache
-from txgraph.main import BitcoinTransactionGraph
+def analyze_original_diameter():
+    # 1. 定义文件列表
+    files = [
+        "diameter/dist_stats_start_923800.jsonl",
+        "diameter/dist_stats_start_923820.jsonl",
+        "diameter/dist_stats_start_923840.jsonl",
+        "diameter/dist_stats_start_923860.jsonl",
+        "diameter/dist_stats_start_923880.jsonl",
+        "diameter/dist_stats_start_923900.jsonl",
+        "diameter/dist_stats_start_923920.jsonl",
+        "diameter/dist_stats_start_923940.jsonl",
+        "diameter/dist_stats_start_923960.jsonl",
+        "diameter/dist_stats_start_923980.jsonl"
+    ]
+
+    data = []
+
+    print("开始读取文件并处理数据...")
+    # 2. 读取文件并提取数据
+    for file in files:
+        with open(file, 'r') as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                    dist_list = record.get('dist_list', [])
+
+                    if dist_list:
+                        dist_array = np.array(dist_list)
+
+                        # 3. 计算统计量
+                        # 使用分位数 (P99, P95) 来作为更稳健的直径指标，过滤极端值
+                        max_d = np.max(dist_array)
+                        p99 = np.percentile(dist_array, 99)
+                        p95 = np.percentile(dist_array, 95)
+
+                        data.append({
+                            'window_size': record.get('window_size'),
+                            'max_dist': max_d,
+                            'p99_dist': p99,
+                            'p95_dist': p95
+                        })
+                except json.JSONDecodeError:
+                    continue
+
+    # 转换为 DataFrame 方便分析
+    df = pd.DataFrame(data)
+
+    # 4. 数据聚合分析
+    # 按窗口大小分组，计算均值(mean)和标准差(std)
+    # 标准差用于绘制误差棒，展示不同文件间数据的波动情况
+    grouped = df.groupby('window_size').agg({
+        'max_dist': ['mean', 'std'],
+        'p99_dist': ['mean', 'std'],
+        'p95_dist': ['mean', 'std']
+    }).reset_index()
+
+    # 展平多层列名
+    grouped.columns = ['window_size', 'max_mean', 'max_std', 'p99_mean', 'p99_std', 'p95_mean', 'p95_std']
+
+    print("分析完成，统计结果如下：")
+    print(grouped)
+
+    # 5. 结果绘图
+    plt.figure(figsize=(12, 6))
+
+    # 绘制 Max 直径 (虚线)
+    plt.errorbar(grouped['window_size'], grouped['max_mean'], yerr=grouped['max_std'],
+                 label='Max Diameter (Mean)', capsize=5, marker='o', linestyle='--', alpha=0.7)
+
+    # 绘制 P99 直径 (实线，推荐指标)
+    plt.errorbar(grouped['window_size'], grouped['p99_mean'], yerr=grouped['p99_std'],
+                 label='99th Percentile Diameter (Mean)', capsize=5, marker='s', linestyle='-', linewidth=2)
+
+    # 绘制 P95 直径 (点线)
+    plt.errorbar(grouped['window_size'], grouped['p95_mean'], yerr=grouped['p95_std'],
+                 label='95th Percentile Diameter (Mean)', capsize=5, marker='^', linestyle=':', alpha=0.7)
+
+    plt.title('Blockchain Transaction Graph Diameter vs. Window Size')
+    plt.xlabel('Window Size (Number of Blocks)')
+    plt.ylabel('Diameter (Distance)')
+    plt.xticks(grouped['window_size'])  # 确保x轴显示所有整数窗口大小
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    plt.show()
+
+    return grouped['window_size'].values, grouped['p99_mean'].values
 
 
-# def get_diameter_from_block(height, count):
-#     # 爬取对应区块交易
-#     save_block_transaction(height, height + count)
-#     # 区块交易构图
-#     btg = load_graph_cache(height, height + count, f"cache/graph_cache_{height}to{height + count}.pkl")
-#     # 计算直径
-#     return get_max_diameter(btg)
-
-def append_distance_result(file_path, start_height, window_size, dist_list):
-    """
-    将统计结果追加保存到 JSONL 文件中。
-
-    :param file_path: 保存的文件路径 (建议以 start_height 命名，或者汇总到一个大文件)
-    :param start_height: 起始区块高度
-    :param window_size: 当前窗口大小 (w)
-    :param dist_list: 计算出的距离列表
-    """
-    # 构造一条记录
-    record = {
-        "key": f"{start_height}:{window_size}",  # 你的需求：key 为当前结束的区块高度
-        "start_height": start_height,  # 记录起始高度，方便分组
-        "window_size": window_size,  # 记录窗口大小
-        "sample_count": len(dist_list),  # 记录样本数量(列表长度)，方便快速概览
-        "dist_list": dist_list  # 核心数据
-    }
-
-    # 确保目录存在
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-    # 使用 'a' (append) 模式追加写入
-    with open(file_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
-    print(f"追加文件：{file_path}")
-
-def process_single_sample(start_height, max_window=10):
-    """
-    处理单个起始区块的样本：增量计算 1~10 个区块的直径
-    """
-    print(f"开始分析起始区块: {start_height}")
-    sample_results = {}
-    btg = BitcoinTransactionGraph()
+def fit_blockchain_diameter_model(x, y):
+    # 定义幂律函数模型: y = a * x^b
+    def power_func(x, a, b):
+        return a * np.power(x, b)
+    
+    # 4. 执行曲线拟合
     try:
-        # 逐步增加窗口大小 (1 -> 10) w为窗口大小
-        for w in range(1, max_window + 1):
-            current_block_height = start_height + w - 1
-            # 1. 爬取对应区块交易
-            save_block_transaction(current_block_height, current_block_height + 1)
-            # 2. 加载当前这一个新区块的数据
-            file_path = f"../dataset/transactions_block_{current_block_height}.json"
-            file_transactions = load_transactions_from_file(file_path)
-            # 3. 增量构图
-            print("-------------------开始增量构图-------------------")
-            for tx in file_transactions:
-                btg.add_transaction(tx['hash'], tx['input_addrs'], tx['output_addrs'])
-            print("-------------------结束增量构图-------------------")
-
-            # 3. 计算当前图的距离分布列表
-            dist_list = get_node_distance_list(btg)
-            # 取列表的 90 分位
-            dist_list.sort()
-            idx = int(len(dist_list) * 0.9)
-            effective_diameter = dist_list[idx]
-            sample_results[w] = effective_diameter
-            # 保存完整列表结果
-            save_file = f"diameter/dist_stats_start_{start_height}.jsonl"
-            append_distance_result(save_file, start_height, w, dist_list)
-            print(f"起始区块: {start_height} ，窗口：{w}，分析完成：{sample_results}。")
-    except Exception as e:
-        print(f"起始区块: {start_height} 分析发生错误: {e}")
+        # curve_fit 返回拟合参数 popt 和协方差矩阵 pcov
+        popt, pcov = curve_fit(power_func, x, y)
+        a_fit, b_fit = popt
+    except RuntimeError:
+        print("错误: 曲线拟合失败。")
         return None
-    print(f"起始区块: {start_height} 分析完成。")  # 返回窗口与直径的映射
-    print(sample_results)
-    return sample_results
 
-
-def main_statistics():
-    # 参数配置
-    MIN_HEIGHT = 923821
-    MAX_HEIGHT = 933821
-    SAMPLE_SIZE = 15
-    MAX_WINDOW = 20
-    # 1. 随机采样起始区块
-    # valid_range = range(MIN_HEIGHT, MAX_HEIGHT - MAX_WINDOW)
-    # start_heights = sorted(random.sample(valid_range, SAMPLE_SIZE))
-    # print(f"选定的 {SAMPLE_SIZE} 个起始区块: {start_heights}")
-
-    # mock start_heights
-    start_heights = list(range(923800, 933800, 20))
-
-    # 2. 遍历起始区块进行统计
-    results_collection = defaultdict(list)  # { window_size: [d1, d2, ... d30] }
-    for i, h in enumerate(start_heights):
-        try:
-            # 直接调用处理函数
-            res = process_single_sample(h, MAX_WINDOW)
-            # 收集结果
-            if res:
-                for w, diameter in res.items():
-                    results_collection[w].append(diameter)
-        except Exception as exc:
-            print(f"起始区块 {h} 处理异常: {exc}")
-            continue
-    # 返回的是窗口大小对应图直径列表的字典
-    return results_collection
+    # 5. 计算 R-squared (决定系数) 来评估拟合好坏
+    y_pred = power_func(x, a_fit, b_fit)
+    residuals = y - y_pred
+    ss_res = np.sum(residuals**2)
+    ss_tot = np.sum((y - np.mean(y))**2)
+    r_squared = 1 - (ss_res / ss_tot)
+    
+    # 6. 绘图展示 (可选)
+    plt.figure(figsize=(10, 6))
+    plt.scatter(x, y, color='black', label='实际数据 (平均 P99)')
+    
+    # 生成平滑曲线
+    x_smooth = np.linspace(x.min(), x.max(), 100)
+    y_smooth = power_func(x_smooth, a_fit, b_fit)
+    
+    plt.plot(x_smooth, y_smooth, color='red', linestyle='-', linewidth=2, 
+             label=f'拟合曲线: $D = {a_fit:.4f} \cdot x^{{{b_fit:.4f}}}$\n($R^2 = {r_squared:.4f}$)')
+    
+    plt.title('Blockchain Transaction Graph Diameter Fitting (Power Law)')
+    plt.xlabel('Window Size (Blocks)')
+    plt.ylabel('Diameter Threshold (P99)')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.show() # 或者 plt.savefig('fitting_result.png')
+    
+    result = {
+        'a': a_fit,
+        'b': b_fit,
+        'r_squared': r_squared,
+        'formula': f"Diameter = {a_fit:.4f} * (Window_Size)^{b_fit:.4f}"
+    }
+    
+    return result
 
 
 if __name__ == "__main__":
-    random.seed(42)
-    res = main_statistics()
-    print(res)
-    # cnt = get_diameter_from_block(927000, 10)
-    # cnt = sorted(cnt)
-    # idx = int(round(len(cnt) * 0.9, 10))
-    # print(cnt[idx])
+    # 调用函数执行
+    w, p99 = analyze_original_diameter()
+    fit_blockchain_diameter_model(w, p99)

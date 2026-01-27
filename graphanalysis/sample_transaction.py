@@ -1,7 +1,9 @@
 import json
 import os
 import pickle
-
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from txgraph.main import BitcoinTransactionGraph, load_transactions_from_file
 
 

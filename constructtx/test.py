@@ -1,4 +1,7 @@
 import random
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from collections import Counter
 
 import numpy as np
@@ -56,11 +59,11 @@ if __name__ == "__main__":
     # tmp = [2,1,3]
     # tmp.sort()
     # print(tmp)
-    save_block_transaction(923900, 924000)
+    # save_block_transaction(923900, 924000)
 
-    # btg = BitcoinTransactionGraph()
-    # btg.add_transaction('1',['a'],['b'])
-    # btg.add_transaction('2',['b'],['a'])
-    # btg.add_transaction('3',['a'],['c'])
-    # btg.add_transaction('4',['c'],['a'])
-    # print(get_max_diameter(btg))
+    btg = BitcoinTransactionGraph()
+    btg.add_transaction('1',['a'],['b'])
+    btg.add_transaction('2',['b'],['a'])
+    btg.add_transaction('3',['a'],['c'])
+    btg.add_transaction('4',['c'],['a'])
+    btg.get_graph_info()
