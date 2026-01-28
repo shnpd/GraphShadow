@@ -8,7 +8,7 @@ import numpy as np
 
 from constructtx.utils import generate_random_address
 from crawler.crawler import save_block_transaction
-from graphanalysis.path_length import get_node_distance_list
+from graphanalysis.path_length import get_approximate_diameter, get_node_distance_list
 from txgraph.main import BitcoinTransactionGraph
 
 
@@ -67,3 +67,5 @@ if __name__ == "__main__":
     btg.add_transaction('3',['a'],['c'])
     btg.add_transaction('4',['c'],['a'])
     btg.get_graph_info()
+    print(get_approximate_diameter(btg))
+    print(get_node_distance_list(btg))

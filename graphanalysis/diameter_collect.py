@@ -3,10 +3,12 @@ import json
 import os
 import random
 from collections import defaultdict
-
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crawler.crawler import save_block_transaction
 # from crawler.crawler import save_block_transaction
-from graphanalysis.path_length import get_node_distance_list
+from graphanalysis.path_length import get_approximate_diameter, get_node_distance_list
 from graphanalysis.sample_transaction import load_transactions_from_file, load_graph_cache
 from txgraph.main import BitcoinTransactionGraph
 
@@ -51,7 +53,7 @@ def process_single_sample(start_height, max_window=10):
             # 1. 爬取对应区块交易
             save_block_transaction(current_block_height, current_block_height + 1)
             # 2. 加载当前这一个新区块的数据
-            file_path = f"../dataset/transactions_block_{current_block_height}.json"
+            file_path = f"dataset/transactions_block_{current_block_height}.json"
             file_transactions = load_transactions_from_file(file_path)
             # 3. 增量构图
             print("-------------------开始增量构图-------------------")
@@ -59,17 +61,24 @@ def process_single_sample(start_height, max_window=10):
                 btg.add_transaction(tx['hash'], tx['input_addrs'], tx['output_addrs'])
             print("-------------------结束增量构图-------------------")
 
-            # 3. 计算当前图的距离分布列表
-            dist_list = get_node_distance_list(btg)
-            # 取列表的 90 分位
+            dist_list = get_approximate_diameter(btg)
             dist_list.sort()
-            idx = int(len(dist_list) * 0.9)
-            effective_diameter = dist_list[idx]
-            sample_results[w] = effective_diameter
-            # 保存完整列表结果
-            save_file = f"diameter/dist_stats_start_{start_height}.jsonl"
+            save_file = f"graphanalysis/diameter2/dist_stats_start_{start_height}.jsonl"
             append_distance_result(save_file, start_height, w, dist_list)
-            print(f"起始区块: {start_height} ，窗口：{w}，分析完成：{sample_results}。")
+            print(f"起始区块: {start_height} ，窗口：{w}，分析完成。")
+
+            
+            # # 3. 计算当前图的距离分布列表
+            # dist_list = get_node_distance_list(btg)
+            # # 取列表的 90 分位
+            # dist_list.sort()
+            # idx = int(len(dist_list) * 0.9)
+            # effective_diameter = dist_list[idx]
+            # sample_results[w] = effective_diameter
+            # # 保存完整列表结果
+            # save_file = f"diameter2/dist_stats_start_{start_height}.jsonl"
+            # append_distance_result(save_file, start_height, w, dist_list)
+            # print(f"起始区块: {start_height} ，窗口：{w}，分析完成：{sample_results}。")
     except Exception as e:
         print(f"起始区块: {start_height} 分析发生错误: {e}")
         return None
@@ -83,14 +92,14 @@ def main_statistics():
     MIN_HEIGHT = 923821
     MAX_HEIGHT = 933821
     SAMPLE_SIZE = 15
-    MAX_WINDOW = 20
+    MAX_WINDOW = 50
     # 1. 随机采样起始区块
     # valid_range = range(MIN_HEIGHT, MAX_HEIGHT - MAX_WINDOW)
     # start_heights = sorted(random.sample(valid_range, SAMPLE_SIZE))
     # print(f"选定的 {SAMPLE_SIZE} 个起始区块: {start_heights}")
 
     # mock start_heights
-    start_heights = list(range(923800, 933800, 20))
+    start_heights = list(range(923800, 933800, 50))
 
     # 2. 遍历起始区块进行统计
     results_collection = defaultdict(list)  # { window_size: [d1, d2, ... d30] }

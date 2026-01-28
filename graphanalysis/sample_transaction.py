@@ -11,7 +11,7 @@ def construct_graph_from_block(startId, endId):
     # 获取原始交易数据
     all_transactions = []
     for i in range(startId, endId):
-        filename = f"../dataset/transactions_block_{i}.json"
+        filename = f"dataset/transactions_block_{i}.json"
         file_transactions = load_transactions_from_file(filename)
         all_transactions.extend(file_transactions)
     # 将交易数据构图
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     all_transactions = []
     # 统计10个区块
     for i in range(928050, 928060):
-        filename = f"../dataset/transactions_block_{i}.json"
+        filename = f"dataset/transactions_block_{i}.json"
         file_transactions = load_transactions_from_file(filename)
         all_transactions.extend(file_transactions)
         # all_transactions.extend(random.sample(file_transactions, 10))

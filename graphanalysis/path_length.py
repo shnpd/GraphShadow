@@ -1,6 +1,8 @@
 import random
 from collections import defaultdict
-
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import networkx as nx
 import numpy as np
 from matplotlib import pyplot as plt
@@ -10,12 +12,10 @@ from sklearn.metrics import r2_score
 import pandas as pd
 import seaborn as sns
 
-import sample_transaction
 from txgraph.main import BitcoinTransactionGraph
 
 import os
 import pickle
-import igraph as ig
 
 def load_or_collect_diameter_data(
         all_transactions,
@@ -51,7 +51,7 @@ def get_node_distance_list(btg):
         return 0
     max_distance = []
     # 遍历每个节点，计算每个节点到其他节点的距离
-    for source, dist_map in nx.shortest_path_length(G):
+    for source, dist_map in nx.shortest_path_length(sub_G):
         if dist_map:
             # 保存source到其他节点距离的最大值
             current_max = max(dist_map.values())
@@ -61,38 +61,6 @@ def get_node_distance_list(btg):
     print("-------------------结束计算交易图各节点的最大可达距离列表-------------------")
 
     return max_distance
-
-def get_node_distance_list_igraph(btg):
-    print("---开始计算（igraph加速版）---")
-    nx_graph = btg.graph
-    
-    if len(nx_graph) == 0:
-        return []
-
-    # 1. 将 NetworkX 图转换为 igraph 对象
-    # 如果追求极致速度，建议在数据加载阶段直接构建 igraph，避免转换开销
-    g = ig.Graph.from_networkx(nx_graph)
-    
-    # 2. 计算所有节点的最短路径矩阵
-    # mode='out' 表示遵循有向边的方向
-    # result 是一个二维列表 (Matrix)
-    shortest_paths = g.shortest_paths(mode='out')
-    
-    max_distances = []
-    
-    # 3. 处理结果
-    for dist_list in shortest_paths:
-        # 过滤掉 float('inf')，因为不可达的距离在 igraph 中表示为 inf
-        valid_dists = [d for d in dist_list if d != float('inf')]
-        
-        if valid_dists:
-            max_distances.append(max(valid_dists))
-        else:
-            # 如果该节点到任何其他节点都不可达（除了自己），视具体需求处理，这里设为0
-            max_distances.append(0)
-            
-    print("---结束计算---")
-    return max_distances
 
 def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
     """
@@ -125,6 +93,48 @@ def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
                 results[num_nodes].append(diameter)
     return dict(results)
 
+
+def get_approximate_diameter(btg, samples=10):
+    """
+    计算图的近似直径。
+    不需要遍历所有节点，而是随机采样几个点找最远距离。
+    """
+    G = btg.graph
+    if len(G) == 0:
+        return 0
+        
+    # 如果图比较小，直接算精确的（NetworkX 会自动处理）
+    # 但如果图很大，强制使用近似方法
+    
+    # 必须确保图是连通的，或者我们在最大的连通分量(弱连通)上计算
+    if not nx.is_weakly_connected(G):
+        # 获取最大弱连通分量
+        largest_cc = max(nx.weakly_connected_components(G), key=len)
+        sub_G = G.subgraph(largest_cc)
+    else:
+        sub_G = G
+
+    nodes = list(sub_G.nodes())
+    
+    # 抽样数量等于图节点数/10，最少为10个
+    samples = int(len(nodes) / 100)
+    samples = max(10, samples)
+    
+    dist_list = []
+    for _ in range(samples):
+        start_node = random.choice(nodes)
+        
+        # 1. 既然是有向图，我们只关心“可达”的最远距离
+        # 计算从 start_node 出发到所有点的距离
+        lengths = nx.single_source_shortest_path_length(sub_G, start_node)
+        
+        # 找到最远的点 target_node
+        target_node = max(lengths, key=lengths.get)
+        dist = lengths[target_node]
+        
+        dist_list.append(dist)
+            
+    return dist_list
 
 def fit_function(node_cnt, path_len):
     # 模块 2: 使用对数函数进行非线性拟合。
@@ -419,7 +429,7 @@ if __name__ == "__main__":
     btg = BitcoinTransactionGraph()
     all_transactions = []
     for i in range(928050, 928060):
-        filename = f"../dataset/transactions_block_{i}.json"
+        filename = f"dataset/transactions_block_{i}.json"
         file_transactions = sample_transaction.load_transactions_from_file(filename)
         all_transactions.extend(file_transactions)
         # all_transactions.extend(random.sample(file_transactions, 10))

@@ -7,6 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def fetch_block_transactions(block_number):
     """
@@ -62,7 +63,7 @@ def save_block_transaction(startId, endId):
     MAX_RETRIES = 5
     # ============================== 交易数据获取（改为 API 一次性获取） ==============================
     for idx, blk in enumerate(all_blocks, start=1):
-        file_path = f"../dataset/transactions_block_{blk['number']}.json"
+        file_path = f"dataset/transactions_block_{blk['number']}.json"
         # 检查文件是否存在
         if os.path.exists(file_path):
             print(f"{file_path} 文件已存在，跳过获取。")
