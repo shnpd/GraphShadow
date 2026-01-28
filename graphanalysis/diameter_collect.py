@@ -63,7 +63,7 @@ def process_single_sample(start_height, max_window=10):
 
             dist_list = get_approximate_diameter(btg)
             dist_list.sort()
-            save_file = f"graphanalysis/diameter2/dist_stats_start_{start_height}.jsonl"
+            save_file = f"graphanalysis/diameter3/dist_stats_start_{start_height}.jsonl"
             append_distance_result(save_file, start_height, w, dist_list)
             print(f"起始区块: {start_height} ，窗口：{w}，分析完成。")
 

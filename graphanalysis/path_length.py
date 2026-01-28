@@ -94,7 +94,7 @@ def collect_diameter_data(all_transactions, scale_list, samples_per_scale=30):
     return dict(results)
 
 
-def get_approximate_diameter(btg, samples=10):
+def get_approximate_diameter(btg, samples=100):
     """
     计算图的近似直径。
     不需要遍历所有节点，而是随机采样几个点找最远距离。
@@ -117,9 +117,9 @@ def get_approximate_diameter(btg, samples=10):
     nodes = list(sub_G.nodes())
     
     # 抽样数量等于图节点数/10，最少为10个
-    samples = int(len(nodes) / 100)
-    samples = max(10, samples)
-    
+    # samples = int(len(nodes) / 100)
+    # samples = max(10, samples)
+    samples = min(samples, len(nodes))
     dist_list = []
     for _ in range(samples):
         start_node = random.choice(nodes)
