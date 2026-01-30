@@ -61,11 +61,16 @@ if __name__ == "__main__":
     # print(tmp)
     # save_block_transaction(923900, 924000)
 
-    btg = BitcoinTransactionGraph()
-    btg.add_transaction('1',['a'],['b'])
-    btg.add_transaction('2',['b'],['a'])
-    btg.add_transaction('3',['a'],['c'])
-    btg.add_transaction('4',['c'],['a'])
-    btg.get_graph_info()
-    print(get_approximate_diameter(btg))
-    print(get_node_distance_list(btg))
+    # btg = BitcoinTransactionGraph()
+    # btg.add_transaction('1',['a'],['b'])
+    # btg.add_transaction('2',['b'],['a'])
+    # btg.add_transaction('3',['a'],['c'])
+    # btg.add_transaction('4',['c'],['a'])
+    # btg.get_graph_info()
+    # print(get_approximate_diameter(btg))
+    # print(get_node_distance_list(btg))
+    t = 100
+    for _ in range(10):
+        print(t)
+        t = 10
+        t += 1
