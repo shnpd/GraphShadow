@@ -10,6 +10,7 @@ from samplediameter import DiameterSampler
 import utils
 import pandas as pd
 import re
+import networkx as nx
 
 def init_TxInOutSampler():
     # 离散分布
@@ -206,31 +207,62 @@ def get_diameter_threshold_by_window(target_window, excel_path="constructtx/直�
             
     return window_to_threshold[last_valid_w]
 
-# 构造一笔代币分配交易
+def update_central_states_with_components(graph, central_states):
+    """
+    计算全图弱连通分量，并将 comp_size (分量大小) 更新到 central_states 中。
+    用于后续的加权计算。
+    """
+    # 1. 边界情况
+    if graph.graph.number_of_nodes() == 0:
+        for s in central_states:
+            s['comp_size'] = 0
+        return
+
+    # 2. 计算分量 (使用 NetworkX 的高效算法)
+    components = list(nx.weakly_connected_components(graph.graph))
+    
+    # 3. 构建 节点 -> 分量大小 的映射
+    node_size_map = {}
+    for nodes in components:
+        size = len(nodes)
+        for node in nodes:
+            node_size_map[node] = size
+            
+    # 4. 更新 central_states
+    for state in central_states:
+        addr = state['address']
+        # 如果地址在图中，获取实际分量大小；否则为0（孤立）
+        state['comp_size'] = node_size_map.get(addr, 0)
+
 def construct_token_distribute_transaction(tx_sampler, central_states, graph, start_height):
     """
     构造代币分配交易，中心地址->通信地址
+    修改说明：移除了 d_cur 逻辑，权重直接基于 d_tgt
+    
     :param tx_sampler: TxInOutSampler 实例，用于采样 n, m
     :param central_states: 中心地址状态列表 (list of dict)，将被原地修改
-                           结构: [{'address':.., 'bal':.., 'd_cur':.., 'd_tgt':..}, ...]
-    :param graph: BitcoinTransactionGraph 实例，需支持 add/remove_transaction 和 calculate_diameter
+                           结构: [{'address':.., 'bal':.., 'd_tgt':..}, ...] (d_cur 已废弃)
+    :param graph: BitcoinTransactionGraph 实例
     :param start_height: 隐蔽交易的起始区块高度
-    :return: 成功返回交易字典 {'txid', 'inputs', 'outputs', 'diameter'}
-        UTXO用完返回 'Done'
+    :return: 构造成功返回交易字典 {'txid', 'inputs', 'outputs', 'diameter'}
+             UTXO用完返回 'Done'
+            直径超出限制返回 'Exceed'
     """
     tx_id = utils.generate_tx_id()
+    
     # ---------------------------------------------------------
     # 1. 采样输入输出数量 (n, m)
     # ---------------------------------------------------------
     n, m = tx_sampler.sample(size=1)[0]
-    # 如果可用utxo为零，那么代币分配结束
+    
     available_candidates_indices = [
         i for i, s in enumerate(central_states)
-        if s['bal'] > 0 and (s['d_tgt'] - s['d_cur']) > 0
+        if s['bal'] > 0
     ]
+    
     total_available_utxos = sum(central_states[i]['bal'] for i in available_candidates_indices)
     if total_available_utxos == 0:
-        print(f"  [终止] 所有可用中心地址UTXO耗尽。")
+        print(f"  [终止] 中心地址UTXO耗尽。")
         return 'Done'
 
     # ---------------------------------------------------------
@@ -240,30 +272,32 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
         """
         从 central_states 中选择 count 个输入，避开 banned_indices
         """
-        # 选择count个地址（最终选择数量由bal和d_cur共同确定，不保证能选满count个）
         selection = []
         for _ in range(count):
             candidates = []
             weights = []
+            
             for idx, state in enumerate(central_states):
                 # 1. 跳过黑名单
-                if idx in banned_indices:
-                    continue
-                curr_bal = state['bal']
-                curr_d_cur = state['d_cur']
-                # 2. 扣除本轮已选带来的临时变更 (允许同一个地址在 selection 中出现多次，只要余额够)
-                current_selection_count = selection.count(idx)
-                curr_bal -= current_selection_count
-                curr_d_cur += current_selection_count
-                # 计算权重
-                w = state['d_tgt'] - curr_d_cur
-                # 3. 筛选：还有余额 且 还有度数配额
-                if curr_bal > 0 and w > 0:
-                    candidates.append(idx)
-                    weights.append(w)
-            # 没得选了，退出内层循环，能选多少选多少
+                if idx in banned_indices: continue
+                
+                # 扣除临时占用
+                curr_bal = state['bal'] - selection.count(idx)
+                if curr_bal <= 0: continue
+                
+                # 分量越小，权重越大。+2 是为了防止 log(0/1) 问题。
+                c_size = state.get('comp_size', 0)
+                penalty = np.log2(c_size + 2) 
+                
+                w = state['d_tgt'] / penalty
+                
+                candidates.append(idx)
+                weights.append(w)
+            
+            # 没得选了，退出内层循环
             if not candidates:
                 break
+                
             # 加权采样
             weights = np.array(weights)
             probs = weights / weights.sum()
@@ -271,38 +305,67 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
             selection.append(chosen)
         return selection
 
-
-
     # ---------------------------------------------------------
     # 3. 交易构造(如果构造交易超出直径限制则重新选择中心地址)
     # ---------------------------------------------------------
     banned_indices_for_this_tx = set()  # 本次交易生成的全局黑名单
-    # 生成接收地址 (Outputs) - 只需要生成一次
     outputs = [utils.generate_random_address() for _ in range(m)]
     current_diameter = -1
+    CANDIDATE_ATTEMPTS = 5
+
     while True:
+        # 采样多组中心地址选择直径最小的一组
+        best_indices = []
+        min_temp_diameter = float('inf')
+        # 尝试多次采样
+        for _ in range(CANDIDATE_ATTEMPTS):
+            # 1. 尝试选择一组
+            temp_indices = select_inputs(n, banned_indices_for_this_tx)
+            # 可选地址为0：中心地址由于直径限制都被ban了，没有可选的中心地址，等待区块区间
+            if len(temp_indices) == 0:
+                break
+
+            temp_inputs = [central_states[i]['address'] for i in temp_indices]
+
+            # 2. 试探性加入图 (Add)
+            graph.add_transaction(tx_id, temp_inputs, outputs)
+            
+            # 3. 计算直径
+            temp_d = graph.calculate_diameter()
+            
+            # 4. 立即移除，恢复现场 (Remove)
+            graph.remove_transaction(tx_id)
+            
+            # 5. 记录最优解 (贪心策略：只保留让直径最小的那组)
+            if temp_d < min_temp_diameter:
+                min_temp_diameter = temp_d
+                best_indices = temp_indices
+  
         # 生成发送地址
-        selected_central_indices = select_inputs(n, banned_indices_for_this_tx)
-        # 可选地址为0：余额用完/度数配额用完/中心地址由于直径限制都被ban了，没有可选的中心地址，等待区块区间
+        selected_central_indices = best_indices
+        # 如果没有选出任何地址（可能是被ban完了，或者余额不足）
         if len(selected_central_indices) == 0:
             windows = get_window_size(current_diameter)
-            print(f'直径{current_diameter}已经超出限制，等待新区块{start_height+windows}生成！')
-            break
+            print(f'直径{current_diameter}已经超出区块窗口限制，无法构造符合直径限制的交易，等待新区块{start_height+windows}生成！')
+            return 'Exceed'
+
+            
         # 直径验证
         inputs = [central_states[i]['address'] for i in selected_central_indices]
         graph.add_transaction(tx_id, inputs, outputs)
         current_diameter = graph.calculate_diameter()
+        
         # TODO：获取最新区块高度
         now_height = 934217 
-        # 当前窗口对应的直径阈值
-        diameter_thres = get_diameter_threshold_by_window(now_height-start_height)
+        diameter_thres = get_diameter_threshold_by_window(now_height - start_height)
+        
         if current_diameter <= diameter_thres:
             # === 成功 ===
             print(f"  [成功] 交易 {tx_id}，输入：{inputs}，输出：{outputs}，直径 {current_diameter}")
+            
             # 提交中心地址状态更新
             for idx in selected_central_indices:
                 central_states[idx]['bal'] -= 1
-                central_states[idx]['d_cur'] += 1
             return {
                 'txid': tx_id,
                 'inputs': inputs,
@@ -311,9 +374,7 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
             }
         else:
             # === 失败 (直径超标，尝试重新选择中心地址) ===
-            # 回滚图状态
             graph.remove_transaction(tx_id)
-            # 查找接收地址中存在的导致直径超标的地址
             def find_harmful_senders(tx_id, selected_indices, outputs, graph, diameter_threshold):
                 harmful = set()
                 for idx in selected_indices:
@@ -321,44 +382,43 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
                     graph.add_transaction(tx_id, test_input, outputs)
                     d = graph.calculate_diameter()
                     graph.remove_transaction(tx_id)
-                    # 如果单独使用它仍然超标，说明它本身就有问题
                     if d > diameter_threshold:
                         harmful.add(idx)
                 return harmful
             harmful = find_harmful_senders(tx_id, selected_central_indices, outputs, graph, diameter_thres)
-            print(f"  [重试] 直径 {current_diameter} > {diameter_thres}。拉黑 {len(harmful)} 个地址")
+            print(f"  [重试] 输入：{inputs}，输出：{outputs}，直径 {current_diameter} > {diameter_thres}。拉黑 {len(harmful)} 个地址")
             banned_indices_for_this_tx.update(harmful)
-            # 3. 循环继续 -> 下一次循环会调用 select_inputs，自动避开刚才这批人
-        # 达到最大重试次数仍未成功
-    return None
 
-
-# 构造一笔消息通信交易
 def construct_message_communication_transaction(tx_sampler, comm_addresses, central_states, graph, start_height):
     """
     构造消息通信交易，通信地址->中心地址
+    修改说明：移除接收方的 d_cur 限制，仅根据 d_tgt 权重选择接收方
+    
     :param tx_sampler: TxInOutSampler 实例
     :param comm_addresses: 可用的通信地址列表 (list of str)，作为资金来源
     :param central_states: 中心地址状态列表，作为接收方
     :param graph: 交易图实例
     :param start_height: 隐蔽交易的起始区块高度
-    :return: 成功返回交易字典，失败返回 None
-    发送完毕返回'Done'
+    :return: 成功返回交易字典
+            直径超出限制返回 'Exceed'
     """
     tx_id = utils.generate_tx_id()
+    
     # ---------------------------------------------------------
     # 1. 采样输入输出数量 (n, m)
     # ---------------------------------------------------------
     n, m = tx_sampler.sample(size=1)[0]
+    
     # ---------------------------------------------------------
-    # 2. 选择n个发送地址，如果通信地址数量少于n，则将剩余通信地址用完即可
+    # 2. 选择n个发送地址 (Inputs from Comm Addresses)
     # ---------------------------------------------------------
     available_comm_count = len(comm_addresses)
     n = min(n, available_comm_count)
     selected_comm_indices = np.random.choice(available_comm_count, n, replace=False)
     inputs = [comm_addresses[i] for i in selected_comm_indices]
+
     # ---------------------------------------------------------
-    # 2. 定义中心地址加权选择函数
+    # 3. 定义中心地址加权选择函数 (Outputs to Central States)
     # ---------------------------------------------------------
     def select_outputs(count, banned_indices):
         """
@@ -368,20 +428,20 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
         for _ in range(count):
             candidates = []
             weights = []
+            
             for idx, state in enumerate(central_states):
-                # 1. 跳过黑名单
-                if idx in banned_indices:
-                    continue
-                curr_d_cur = state['d_cur']
-                # 2. 叠加本轮已选带来的变更
-                curr_d_cur += selection.count(idx)
-                # 计算权重
-                w = state['d_tgt'] - curr_d_cur
-                # 3. 筛选：只要还有度数配额就能接收
-                if w > 0:
-                    candidates.append(idx)
-                    weights.append(w)
-            # 没得选了，退出内层循环，能选多少选多少
+                if idx in banned_indices: continue
+                
+                # === 核心修改：简单反向加权 ===
+                c_size = state.get('comp_size', 0)
+                penalty = np.log2(c_size + 2)
+                
+                # 分量越小，被选为接收方的概率越大
+                w = state['d_tgt'] / penalty
+                
+                candidates.append(idx)
+                weights.append(w)
+            # 没得选了，退出内层循环
             if not candidates:
                 break
             # 加权采样
@@ -392,34 +452,59 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
         return selection
 
     # ---------------------------------------------------------
-    # 3. 交易构造
+    # 4. 交易构造
     # ---------------------------------------------------------
     banned_central_indices = set()  # 本次交易针对输出端的黑名单
     current_diameter = -1
+    CANDIDATE_ATTEMPTS = 5
     while True:
-        # 生成接收地址
-        selected_central_indices = select_outputs(m, banned_central_indices)
-        # 中心地址由于直径限制都被ban了，没有可选的中心地址，无法构造交易，退出循环
+        best_indices = []
+        min_temp_diameter = float('inf')
+        
+        # 尝试多次采样接收方
+        for _ in range(CANDIDATE_ATTEMPTS):
+            # 1. 尝试选择一组接收方
+            temp_indices = select_outputs(m, banned_central_indices)
+            
+            # 如果选不够m个 (可能因为ban太多)，这组跳过
+            if len(temp_indices) < m:
+                continue
+                
+            temp_outputs = [central_states[i]['address'] for i in temp_indices]
+            
+            # 2. 试探性加入图 (Add)
+            graph.add_transaction(tx_id, inputs, temp_outputs)
+            
+            # 3. 计算直径
+            temp_d = graph.calculate_diameter()
+            
+            # 4. 立即移除 (Remove)
+            graph.remove_transaction(tx_id)
+            
+            # 5. 记录最优解
+            if temp_d < min_temp_diameter:
+                min_temp_diameter = temp_d
+                best_indices = temp_indices
+        # 将最优解交给后续逻辑
+        selected_central_indices = best_indices
+        # 中心地址由于直径限制都被ban了，没有可选的中心地址，无法构造交易
         if len(selected_central_indices) == 0:
             windows = get_window_size(current_diameter)
             print(f'直径{current_diameter}已经超出限制，等待新区块{start_height+windows}生成！')
-            break
+            return 'Exceed'
         outputs = [central_states[i]['address'] for i in selected_central_indices]
         # 直径验证
         graph.add_transaction(tx_id, inputs, outputs)
         current_diameter = graph.calculate_diameter()
         # TODO：获取最新区块高度
         now_height = 934217 
-        # 当前窗口对应的直径阈值
-        diameter_thres = get_diameter_threshold_by_window(now_height-start_height)
-
+        diameter_thres = get_diameter_threshold_by_window(now_height - start_height)
         if current_diameter <= diameter_thres:
             # === 成功 ===
             print(f"  [成功] 交易 {tx_id}，输入：{inputs}，输出：{outputs}，直径 {current_diameter}")
-            # 1. 更新中心地址状态 (接收方: bal+1, d_cur+1)
+            # 1. 更新中心地址状态 (接收方: bal+1)
             for idx in selected_central_indices:
                 central_states[idx]['bal'] += 1
-                central_states[idx]['d_cur'] += 1
             # 2. 移除已使用的通信地址，从后往前删，防止索引错位
             for idx in sorted(selected_comm_indices, reverse=True):
                 del comm_addresses[idx]
@@ -431,9 +516,7 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
             }
         else:
             # === 失败 (直径超标，尝试重新选择中心地址) ===
-            # 回滚图状态
             graph.remove_transaction(tx_id)
-
             # 查找接收地址中存在的导致直径超标的地址
             def find_harmful_receivers(tx_id, inputs, selected_indices, graph, diameter_threshold):
                 harmful = set()
@@ -450,8 +533,6 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
             harmful = find_harmful_receivers(tx_id, inputs, selected_central_indices, graph, diameter_thres)
             print(f"  [重试] 直径 {current_diameter} > {diameter_thres}。拉黑 {len(harmful)} 个接收地址...")
             banned_central_indices.update(harmful)
-            # 3. 循环继续 -> 重新 select_outputs
-    return None
 
 
 
@@ -459,7 +540,7 @@ def init_parameter():
     global N_utxo, txInOutSampler, D_Thres, central_addresses_state, btg
     #  normal
     # 计算utxo数量
-    N_utxo = calculate_utxos(1024 * 8)  # 1kB
+    N_utxo = calculate_utxos(512 * 8)  # 1kB
     # 计算交易期望输入输出数量
     txInOutSampler = init_TxInOutSampler()
     En, Em = calculate_txinout_expectations(txInOutSampler)
@@ -474,13 +555,17 @@ def init_parameter():
     # 计算地址数量
     N_comm = N_utxo
     N_center = (D_total + (2 - Ed) * N_comm) / Ed
-    # 计算交易图直径阈值
-    Size = N_1 + N_2 + N_comm + N_center
-    # diameterSampler = init_DiameterSampler()
-    # D_Thres = diameterSampler.sample(Size, 1)
     # 初始化中心地址集状态
     central_addresses_state = init_center_addresses(N_center, N_comm, addrCentralDegreeSampler)
-    central_addresses_state[0]['bal'] = 5
+    central_addresses_state[0]['bal'] = 10
+    # central_addresses_state[1]['bal'] = 1
+    # central_addresses_state[2]['bal'] = 1
+    # central_addresses_state[3]['bal'] = 1
+    # central_addresses_state[4]['bal'] = 1
+    # central_addresses_state[5]['bal'] = 1
+    # central_addresses_state[6]['bal'] = 1
+    # central_addresses_state[7]['bal'] = 1
+
     btg = BitcoinTransactionGraph()
 
 
@@ -491,7 +576,6 @@ if __name__ == "__main__":
     init_parameter()
 
     # 模拟主循环 (多轮次)
-    # NUM_ROUNDS = 3  # 模拟轮数
     round_idx = 0
     # 如果 N_utxo > 0 说明消息未传输完成（消息传输还需要N_utxo个交易），则继续下一轮
     while N_utxo > 0:
@@ -500,12 +584,14 @@ if __name__ == "__main__":
         # Phase 1: 代币分配阶段 (Token Distribution)
         # 中心地址 -> 通信地址
         # -------------------------------------------------
-        print(f"\n[Phase 1] 代币分配: 直到中心地址余额耗尽...")
+        print(f"\n[Phase 1] 代币分配: 直到中心地址余额耗尽或UTXO分配足够...")
         round_comm_addresses = []  # 本轮产生的所有通信地址
         dist_tx_count = 0
         # 如果 N_utxo > 0 说明仍需要utxo分配，继续创建代币分配交易
         while N_utxo > 0:
             # 尝试构造交易
+            update_central_states_with_components(btg, central_addresses_state)
+
             tx = construct_token_distribute_transaction(
                 txInOutSampler,
                 central_addresses_state,
@@ -515,19 +601,22 @@ if __name__ == "__main__":
             # 所有中心地址UTXO耗尽。
             if tx == 'Done':
                 break
-            elif tx:
+            elif tx == 'Exceed':
+                # TODO：等待新区块生成
+                print(f" 第 {round_idx + 1} 轮模拟 Phase 1 失败。")
+                sys.exit()
+            else:
                 # 成功
                 dist_tx_count += 1
                 round_comm_addresses.extend(tx['outputs'])
                 # 更新剩余待分配的utxo数量
                 N_utxo -= len(tx['outputs'])
-            else:
-                print(f" 第 {round_idx + 1} 轮模拟 Phase 1 失败。")
-                break
-        print(f"Phase 1 结束。共生成 {dist_tx_count} 笔交易，产生了 {len(round_comm_addresses)} 个通信地址 UTXO。")
+
+        print(f"Round {round_idx + 1} Phase 1 结束，产生了 {dist_tx_count} 笔交易，产生了 {len(round_comm_addresses)} 个通信地址 UTXO。")
         # 没有分配代币
         if dist_tx_count == 0:
             break
+        btg.visualize()
         # -------------------------------------------------
         # Phase 2: 消息通信阶段 (Message Communication)
         # 通信地址 -> 中心地址
@@ -537,6 +626,8 @@ if __name__ == "__main__":
         # 只要还有通信地址可用，就继续生成
         while len(round_comm_addresses) > 0:
             # 1. 尝试构造交易
+            update_central_states_with_components(btg, central_addresses_state)
+
             tx = construct_message_communication_transaction(
                 txInOutSampler,
                 round_comm_addresses,
@@ -544,18 +635,17 @@ if __name__ == "__main__":
                 btg,
                 934217-5,
             )
-            if tx:
-                comm_tx_count += 1
-                fail_count = 0
-                if comm_tx_count % 100 == 0:
-                    print(f"  已生成 {comm_tx_count} 笔通信交易, 剩余通信地址: {len(round_comm_addresses)}")
+            if tx == 'Exceed':
+                # TODO：等待新区块生成
+                print(f" 第 {round_idx + 1} 轮模拟 Phase 1 失败。")
+                sys.exit()
             else:
-                print(f" 第 {round_idx + 1} 轮模拟 Phase 2 失败。")
-                break
-        print(f"Phase 2 结束。共生成 {comm_tx_count} 笔交易，中心地址已回收资金。")
+                comm_tx_count += 1
+
+
+        print(f"Round {round_idx + 1} Phase 2 结束, 通信地址utxo转回中心地址，剩余{N_utxo}个消息片待传输。")
         round_idx += 1
         btg.visualize()
 
     btg.get_graph_info()
     print(btg.calculate_diameter())
-    btg.visualize()

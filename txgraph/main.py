@@ -81,7 +81,35 @@ class BitcoinTransactionGraph:
             return int(np.max(finite_distances))
         else:
             return 0
+        
+    def calculate_diameter_nfx(self):
+        """
+        将图视为无向图，使用 Floyd-Warshall 计算图直径
+        (计算的是最大弱连通分量的拓扑直径)
+        """
+        # 1. 边界情况
+        if self.graph.number_of_nodes() == 0:
+            return 0
 
+        # 2. 转换为无向图 (核心修改)
+        # to_undirected() 会创建一个新的图副本，其中所有的有向边都被转换为无向边
+        # 这样 A->B 的连接，现在 B 也可以到达 A，距离为 1
+        undirected_G = self.graph.to_undirected()
+
+        # 3. 计算全点对最短路径矩阵
+        # 注意：Floyd-Warshall 的复杂度是 O(N^3)，仅适用于节点数较少的情况 (<1000)
+        dist_matrix = nx.floyd_warshall_numpy(undirected_G)
+
+        # 4. 过滤有效值 (处理不连通的情况)
+        # 在无向图中，如果不连通，距离依然是 inf，isfinite 会自动过滤掉
+        mask = np.isfinite(dist_matrix)
+        finite_distances = dist_matrix[mask]
+
+        # 5. 取最大值
+        if len(finite_distances) > 0:
+            return int(np.max(finite_distances))
+        else:
+            return 0
     def visualize(self):
         # ✅ 1. 设置中文字体 (Windows下通常使用 SimHei)
         plt.rcParams['font.sans-serif'] = ['SimHei']
