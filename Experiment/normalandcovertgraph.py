@@ -25,7 +25,7 @@ def build_mixed_graph_and_visualize(normal_transaction, covert_transaction):
 
     covert_tx_ids = set()
     for ctx in covert_transaction:
-        btg_mixed.add_transaction(ctx['hash'], ctx['inputs'], ctx['outputs'])
+        btg_mixed.add_transaction(ctx['hash'], ctx['input_addrs'], ctx['output_addrs'])
         # 记录 ID 用于后续高亮
         covert_tx_ids.add(ctx['hash'])
         
@@ -38,7 +38,7 @@ def build_mixed_graph_and_visualize(normal_transaction, covert_transaction):
     # ------------------------------------------------
     # 调用改进后的 visualize_covert 方法，传入隐蔽交易 ID 集合
     try:
-        btg_mixed.visualize_covert(covert_tx_ids=covert_tx_ids)
+        btg_mixed.visualize_chain_covert_1in2out(covert_tx_ids=covert_tx_ids)
     except AttributeError:
         print("❌ 错误: 你的 BitcoinTransactionGraph 类似乎没有更新 visualize_covert 方法。")
         print("请确保 visualize_covert 方法支持 `covert_tx_ids` 参数 (参考上一个问题的回答)。")
@@ -81,8 +81,8 @@ def generate_chain_transactions(n, rounds):
             # 结构：1个输入 -> 1个输出
             tx = {
                 'hash': tx_id,          # 或 'hash'，根据你图代码的习惯
-                'inputs': [input_addr],
-                'outputs': [output_addr]
+                'input_addrs': [input_addr],
+                'output_addrs': [output_addr]
             }
             
             all_transactions.append(tx)
@@ -94,6 +94,69 @@ def generate_chain_transactions(n, rounds):
         current_addresses = next_round_addresses
 
     print(f"生成结束。共生成 {len(all_transactions)} 笔交易。")
+    return all_transactions
+
+def generate_1in2out_chain_transactions(n, rounds):
+    """
+    生成 n 条平行的 1输入-2输出 链式交易结构 (Peeling Chain)。
+    
+    结构逻辑：
+    Tx1: [Addr_A] -> [Addr_Label_1, Addr_Change_1]
+    Tx2: [Addr_Change_1] -> [Addr_Label_2, Addr_Change_2]
+    ...
+    
+    :param n: 链的条数 (并行交易的数量)
+    :param rounds: 链的深度 (交易轮数)
+    :return: 包含所有生成交易的列表
+    """
+    all_transactions = []
+    
+    # 1. 初始化 n 个起始地址 (第 0 轮的输入)
+    current_addresses = [utils.generate_random_address() for _ in range(n)]
+    
+    print(f"初始化完成: 准备生成 {n} 条平行链，每条链长度为 {rounds}...")
+
+    # 2. 循环生成每一轮
+    for r in range(rounds):
+        next_round_addresses = [] # 仅存储将用于下一轮输入的地址（找零地址）
+        
+        for i in range(n):
+            # --- 步骤 A: 确定输入 ---
+            # 获取当前链的“头部”地址
+            input_addr = current_addresses[i]
+            
+            # --- 步骤 B: 生成两个输出 ---
+            # 输出 1: Label 地址 (或 Payload)。
+            # 在 DDSAC 中，这个地址承载隐蔽信息，通常不再用于构建下一笔交易（或者被暂时搁置）。
+            output_addr_label = utils.generate_random_address()
+            
+            # 输出 2: Change (找零) 地址。
+            # 这是链条延续的关键，下一轮交易将花费这个地址里的钱。
+            output_addr_change = utils.generate_random_address()
+            
+            # --- 步骤 C: 构造 1-in-2-out 交易 ---
+            tx_id = utils.generate_tx_id()
+            
+            tx = {
+                'hash': tx_id,
+                'input_addrs': [input_addr],
+                # 这里的顺序不影响链结构，但在DDSAC中通常混淆两者
+                'output_addrs': [output_addr_label, output_addr_change] 
+            }
+            
+            all_transactions.append(tx)
+            
+            # --- 步骤 D: 维护链式结构 (关键修改点) ---
+            # 我们只把 "找零地址" 加入 next_round_addresses
+            # 这样下一次循环时，这条链依然只有 1 个输入，保持单链形态，而不是分裂成树
+            next_round_addresses.append(output_addr_change)
+        
+        # 更新 current_addresses，将光标移动到所有的“找零地址”上，准备下一轮
+        current_addresses = next_round_addresses
+
+    print(f"生成结束。共生成 {len(all_transactions)} 笔交易。")
+    print(f"拓扑形态: {n} 条互相独立的平行链，每条链由 {rounds} 个 1-in-2-out 交易首尾相连组成。")
+    
     return all_transactions
 
 if __name__ == "__main__":
@@ -112,11 +175,11 @@ if __name__ == "__main__":
     #     num_groups=5 # 使用之前的分组策略
     # )
 
-    covert_tx = generate_chain_transactions(n=5, rounds=8)
-
-
+    # covert_tx = generate_chain_transactions(n=6, rounds=8)
+    # covert_tx = load_transactions_from_file("experiment/covert_transactions.json")
+    covert_tx = generate_1in2out_chain_transactions(n=6, rounds=11)
     build_mixed_graph_and_visualize(
-        normal_transaction=normal_tx,
+        normal_transaction = normal_tx,
         covert_transaction = covert_tx,
     )
 
