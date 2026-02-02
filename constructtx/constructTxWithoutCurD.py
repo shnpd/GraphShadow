@@ -244,7 +244,7 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
                            结构: [{'address':.., 'bal':.., 'd_tgt':..}, ...] (d_cur 已废弃)
     :param graph: BitcoinTransactionGraph 实例
     :param start_height: 隐蔽交易的起始区块高度
-    :return: 构造成功返回交易字典 {'txid', 'inputs', 'outputs', 'diameter'}
+    :return: 构造成功返回交易字典 {'hash', 'inputs', 'outputs', 'diameter'}
              UTXO用完返回 'Done'
             直径超出限制返回 'Exceed'
     """
@@ -367,7 +367,7 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
             for idx in selected_central_indices:
                 central_states[idx]['bal'] -= 1
             return {
-                'txid': tx_id,
+                'hash': tx_id,
                 'inputs': inputs,
                 'outputs': outputs,
                 'diameter': current_diameter
@@ -509,7 +509,7 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
             for idx in sorted(selected_comm_indices, reverse=True):
                 del comm_addresses[idx]
             return {
-                'txid': tx_id,
+                'hash': tx_id,
                 'inputs': inputs,
                 'outputs': outputs,
                 'diameter': current_diameter

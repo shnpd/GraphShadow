@@ -2,13 +2,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 import sys
 import os
-# 假设这些模块在你本地环境是存在的，保持引用不变
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sampleaddressdegree import AddressCentralDegreeSampler
+from constructtx.sampleaddressdegree import AddressCentralDegreeSampler
 from txgraph.main import BitcoinTransactionGraph
-from sampletxinout import TxInOutSampler
-from samplediameter import DiameterSampler
-import utils
+from constructtx.sampletxinout import TxInOutSampler
+from constructtx.samplediameter import DiameterSampler
+import constructtx.utils as utils
 import pandas as pd
 import re
 
@@ -40,8 +38,8 @@ def init_DiameterSampler():
     diameter_sampler = DiameterSampler(csv_file_path)
     return diameter_sampler
 
-def calculate_utxos(msgSizePerBit):
-    return msgSizePerBit / 256
+def calculate_utxos(msg_size_B):
+    return msg_size_B * 8 / 256
 
 def calculate_txinout_expectations(sampler):
     disc_n_vals = np.array([p[0] for p in sampler.discrete_points])
@@ -244,7 +242,7 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
             for out_addr in outputs:
                 comm_group_map[out_addr] = target_group_id
                 
-            return {'txid': tx_id, 'inputs': inputs, 'outputs': outputs, 'diameter': current_diameter}
+            return {'hash': tx_id, 'inputs': inputs, 'outputs': outputs, 'diameter': current_diameter}
         else:
             graph.remove_transaction(tx_id)
             banned_indices_for_this_tx.update(selected_central_indices)
@@ -352,7 +350,7 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
                     del comm_group_map[addr_to_del]
                 del comm_addresses[idx]
                 
-            return {'txid': tx_id, 'inputs': inputs, 'outputs': outputs, 'diameter': current_diameter}
+            return {'hash': tx_id, 'inputs': inputs, 'outputs': outputs, 'diameter': current_diameter}
         else:
             graph.remove_transaction(tx_id)
             banned_central_indices.update(selected_central_indices)
@@ -390,45 +388,107 @@ def init_parameter():
     # 3. 初始化全局分组映射表
     comm_group_map = {} 
 
-if __name__ == "__main__":
-    init_parameter()
 
+
+
+def generate_covert_transactions(message_size_B, start_height=934217-5, num_groups=9):
+    """
+    封装好的隐蔽交易生成方法。
+    
+    :param message_size_B: 隐蔽消息的大小 (单位: B)
+    :param start_height: 模拟的起始区块高度
+    :param num_groups: 中心地址的分组数量 (用于隔离拓扑结构)
+    :return: (all_transactions, btg) 
+             - all_transactions: 包含所有交易详情的列表
+             - btg: 构建好的 BitcoinTransactionGraph 对象
+    """
+    
+    # ==========================================
+    # 1. 参数计算与初始化
+    # ==========================================
+    N_utxo = calculate_utxos(message_size_B) 
+    
+    # 初始化采样器
+    txInOutSampler = init_TxInOutSampler()
+    addrCentralDegreeSampler = init_AddressCentralDegreeSampler()
+    
+    # 计算期望与拓扑参数
+    En, Em = calculate_txinout_expectations(txInOutSampler)
+    N_1 = N_utxo / Em
+    N_2 = N_utxo / En
+    D_total = (N_1 * En + N_2 * Em) * 1.2
+    
+    Ed = calculate_addresscentrality_expectations(addrCentralDegreeSampler)
+    
+    N_comm = N_utxo
+    N_center = (D_total + (2 - Ed) * N_comm) / Ed
+    
+    # 初始化中心地址状态 (带分组)
+    central_addresses_state = init_center_addresses(
+        N_center, 
+        N_comm, 
+        addrCentralDegreeSampler, 
+        num_groups=num_groups
+    )
+    
+    # 初始余额设置 (确保前 num_groups 个地址有钱，激活每个组)
+    for i in range(min(num_groups, len(central_addresses_state))):
+        central_addresses_state[i]['bal'] = 1
+
+    # 初始化图对象和分组映射
+    btg = BitcoinTransactionGraph()
+    comm_group_map = {} 
+    
+    # 用于存储所有生成的交易列表
+    all_transactions = []
+
+    # ==========================================
+    # 2. 模拟主循环
+    # ==========================================
     round_idx = 0
-    while N_utxo > 0:
-        print(f"\n{'=' * 20} 开始第 {round_idx + 1} 轮模拟 {'=' * 20}")
+    # 为了防止死循环，可以加一个最大轮次限制
+    max_rounds = 100 
+    
+    print(f"开始生成隐蔽交易... 目标 UTXO: {N_utxo}, 消息大小: {message_size_B}B")
+
+    while N_utxo > 0 and round_idx < max_rounds:
+        print(f"\n--- Round {round_idx + 1} Start (剩余 UTXO: {N_utxo}) ---")
         
-        # ---------------- Phase 1 ----------------
-        print(f"\n[Phase 1] 代币分配...")
+        # ---------------- Phase 1: 代币分配 ----------------
         round_comm_addresses = []
-        dist_tx_count = 0
+        phase1_tx_count = 0
         
+        # 只要还有UTXO需要分配就尝试构造交易
         while N_utxo > 0:
             tx = construct_token_distribute_transaction(
                 txInOutSampler,
                 central_addresses_state,
                 btg,
-                934217 - 5,
-                comm_group_map # 传入 Map
+                start_height, # 传入隐蔽交易的其实区块高度
+                comm_group_map    # 传入 Map
             )
             
             if tx == 'Done':
+                # 中心地址UTXO分配完毕，无法再构造交易，跳出 Phase 1，进入 Phase 2 回笼资金
                 break
             elif tx == 'Exceed':
-                print(f" 第 {round_idx + 1} 轮模拟 Phase 1 失败。")
-                sys.exit()
+                raise RuntimeError(f"Round {round_idx+1} Phase 1 直径超标，生成失败。")
             else:
-                dist_tx_count += 1
+                phase1_tx_count += 1
                 round_comm_addresses.extend(tx['outputs'])
                 N_utxo -= len(tx['outputs'])
+                all_transactions.append(tx) # 记录交易
 
-        print(f"Round {round_idx + 1} Phase 1 结束，产生了 {dist_tx_count} 笔交易。")
-        if dist_tx_count == 0:
-            break
-        # btg.visualize() 
+        print(f"  Phase 1 完成: 生成 {phase1_tx_count} 笔交易")
         
-        # ---------------- Phase 2 ----------------
-        print(f"\n[Phase 2] 消息通信...")
-        comm_tx_count = 0
+        # 如果 Phase 1 没生成任何交易 (通常是因为还没分完但中心地址没钱了)，
+        # 且 Phase 2 也没法跑 (没有通信地址)，说明彻底卡死了
+        if phase1_tx_count == 0 and len(round_comm_addresses) == 0:
+            print("警告: 无法生成更多交易且无待回收资金，提前终止。")
+            break
+
+        # ---------------- Phase 2: 消息通信 ----------------
+        phase2_tx_count = 0
         
         while len(round_comm_addresses) > 0:
             tx = construct_message_communication_transaction(
@@ -436,23 +496,111 @@ if __name__ == "__main__":
                 round_comm_addresses,
                 central_addresses_state,
                 btg,
-                934217 - 5,
+                start_height,
                 comm_group_map # 传入 Map
             )
             
             if tx == 'Done':
-                break # 可能有些地址因为分组问题没法匹配，跳过
+                # 可能剩下几个零星地址因为分组匹配不上，跳过
+                break 
             elif tx == 'Exceed':
-                print(f" 第 {round_idx + 1} 轮模拟 Phase 2 失败。")
-                sys.exit()
+                 raise RuntimeError(f"Round {round_idx+1} Phase 2 直径超标，生成失败。")
             else:
-                comm_tx_count += 1
+                phase2_tx_count += 1
+                all_transactions.append(tx) # 记录交易
 
-        print(f"Round {round_idx + 1} Phase 2 结束, 剩余{N_utxo}个消息片待传输。")
+        print(f"  Phase 2 完成: 生成 {phase2_tx_count} 笔交易 (资金回笼)")
         round_idx += 1
-        
-        # 可视化 (需要确保类中有定义)
-        btg.visualize()
 
-    print("\n模拟结束。")
-    print(f"最终直径: {btg.calculate_diameter()}")
+    # ==========================================
+    # 3. 结果返回
+    # ==========================================
+    print(f"\n生成结束。总轮次: {round_idx}, 总交易数: {len(all_transactions)}")
+    print(f"最终图直径: {btg.calculate_diameter()}")
+    
+    return all_transactions, btg
+
+
+
+if __name__ == "__main__":
+    try:
+        # 假设我们要传输 1KB 的数据
+        covert_tx_list, tx_graph = generate_covert_transactions(1024)
+        
+         # 2. 获取交易列表用于后续分析或写入文件
+        print(f"一共生成了 {len(covert_tx_list)} 笔隐蔽交易")
+
+        # 3. 获取交易 ID 列表，用于在可视化中高亮
+        covert_tx_ids = [tx['hash'] for tx in covert_tx_list]
+
+        # 4. 使用之前定义的 visualize 方法绘制
+        # (假设你已经把 visualize 定义在 btg 对象里了)
+        tx_graph.visualize(covert_tx_ids=covert_tx_ids)
+    except Exception as e:
+        print(f"程序执行出错: {e}")
+    # init_parameter()
+
+    # round_idx = 0
+    # while N_utxo > 0:
+    #     print(f"\n{'=' * 20} 开始第 {round_idx + 1} 轮模拟 {'=' * 20}")
+        
+    #     # ---------------- Phase 1 ----------------
+    #     print(f"\n[Phase 1] 代币分配...")
+    #     round_comm_addresses = []
+    #     dist_tx_count = 0
+        
+    #     while N_utxo > 0:
+    #         tx = construct_token_distribute_transaction(
+    #             txInOutSampler,
+    #             central_addresses_state,
+    #             btg,
+    #             934217 - 5,
+    #             comm_group_map # 传入 Map
+    #         )
+            
+    #         if tx == 'Done':
+    #             break
+    #         elif tx == 'Exceed':
+    #             print(f" 第 {round_idx + 1} 轮模拟 Phase 1 失败。")
+    #             sys.exit()
+    #         else:
+    #             dist_tx_count += 1
+    #             round_comm_addresses.extend(tx['outputs'])
+    #             N_utxo -= len(tx['outputs'])
+
+    #     print(f"Round {round_idx + 1} Phase 1 结束，产生了 {dist_tx_count} 笔交易。")
+    #     if dist_tx_count == 0:
+    #         break
+    #     # btg.visualize() 
+        
+    #     # ---------------- Phase 2 ----------------
+    #     print(f"\n[Phase 2] 消息通信...")
+    #     comm_tx_count = 0
+        
+    #     while len(round_comm_addresses) > 0:
+    #         tx = construct_message_communication_transaction(
+    #             txInOutSampler,
+    #             round_comm_addresses,
+    #             central_addresses_state,
+    #             btg,
+    #             934217 - 5,
+    #             comm_group_map # 传入 Map
+    #         )
+            
+    #         if tx == 'Done':
+    #             break # 可能有些地址因为分组问题没法匹配，跳过
+    #         elif tx == 'Exceed':
+    #             print(f" 第 {round_idx + 1} 轮模拟 Phase 2 失败。")
+    #             sys.exit()
+    #         else:
+    #             comm_tx_count += 1
+
+    #     print(f"Round {round_idx + 1} Phase 2 结束, 剩余{N_utxo}个消息片待传输。")
+    #     round_idx += 1
+        
+    #     # 可视化 (需要确保类中有定义)
+        
+    #     btg.visualize()
+
+    # print("\n模拟结束。")
+    # print(f"最终直径: {btg.calculate_diameter()}")

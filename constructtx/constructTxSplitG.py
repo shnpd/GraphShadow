@@ -115,7 +115,7 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph):
     graph.add_transaction(tx_id, [sender['address']], outputs)
     sender['bal'] -= 1
 
-    return {'txid': tx_id, 'inputs': [sender['address']], 'outputs': outputs}
+    return {'hash': tx_id, 'inputs': [sender['address']], 'outputs': outputs}
 
 # =========================================================
 # >>> MODIFIED <<< Phase 2：通信 → 中心（组件内回流）
@@ -152,7 +152,7 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
         comm_addresses.remove(addr)
         del COMM_ADDR_COMPONENT[addr]
 
-    return {'txid': tx_id, 'inputs': inputs, 'outputs': outputs}
+    return {'hash': tx_id, 'inputs': inputs, 'outputs': outputs}
 
 # =========================================================
 # 主程序
