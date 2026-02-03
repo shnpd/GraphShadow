@@ -1013,6 +1013,166 @@ class BitcoinTransactionGraph:
         plt.savefig(filename, format="pdf", bbox_inches="tight", dpi=300)
         print(f"绘图完成，已保存至: {filename}")
         plt.show()       
+    
+    def visualize_blockwhisper_covert(self, covert_tx_ids=None):
+        """
+        优化版可视化：将隐蔽交易“适当分散”在背景图的中心区域，
+        既保留清晰的内部结构，又不占满整幅画面。
+        """
+        import numpy as np
+
+        if covert_tx_ids is None:
+            covert_tx_ids = set()
+        else:
+            covert_tx_ids = set(covert_tx_ids)
+
+        # 1. 基础设置
+        plt.rcParams['font.sans-serif'] = ['SimHei']
+        plt.rcParams['axes.unicode_minus'] = False
+        plt.figure(figsize=(12, 12), dpi=200)
+        
+        print(f"正在计算布局 (节点数: {self.graph.number_of_nodes()})...")
+
+        # 2. 初始布局计算 (全图计算)
+        try:
+            pos = nx.nx_agraph.pygraphviz_layout(
+                self.graph,
+                prog="neato",
+                args="-Grepulsiveforce=1.2 -Goverlap=False -Gmaxiter=1000"
+            )
+        except Exception as e:
+            print(f"PyGraphviz layout failed, using spring_layout... ({e})")
+            pos = nx.spring_layout(self.graph, k=0.04, iterations=100, seed=42)
+
+        # ==========================
+        # 3. 节点识别与分类
+        # ==========================
+        covert_related_addrs = set()
+        for tx_id in covert_tx_ids:
+            if tx_id in self.graph:
+                neighbors = list(self.graph.successors(tx_id)) + list(self.graph.predecessors(tx_id))
+                covert_related_addrs.update(neighbors)
+        
+        all_covert_nodes = covert_tx_ids.union(covert_related_addrs)
+        bg_nodes = [n for n in self.graph.nodes() if n not in all_covert_nodes]
+
+        # ==========================
+        # 4. 隐蔽交易局部优化 (核心修改：局部区域映射)
+        # ==========================
+        if len(all_covert_nodes) > 1 and len(bg_nodes) > 1:
+            print("正在优化隐蔽交易分布 (局部适当分散)...")
+            
+            # A. 计算背景图的物理参数
+            bg_coords = np.array([pos[n] for n in bg_nodes])
+            bg_min = bg_coords.min(axis=0)
+            bg_max = bg_coords.max(axis=0)
+            bg_width = bg_max[0] - bg_min[0]
+            bg_height = bg_max[1] - bg_min[1]
+            
+            # 目标中心点：放在背景图的几何中心
+            target_center = (bg_min + bg_max) / 2
+            
+            # B. 计算隐蔽交易当前的物理参数
+            cov_coords = np.array([pos[n] for n in all_covert_nodes])
+            cov_min = cov_coords.min(axis=0)
+            cov_max = cov_coords.max(axis=0)
+            cov_center = cov_coords.mean(axis=0) # 使用重心
+            cov_width = cov_max[0] - cov_min[0]
+            cov_height = cov_max[1] - cov_min[1]
+            
+            # 防止除零
+            cov_width = max(cov_width, 1e-5)
+            cov_height = max(cov_height, 1e-5)
+
+            # C. 计算缩放比例
+            # 【关键修改】这里控制“适当分散”的程度。
+            # 0.35 表示隐蔽交易群将占据背景图宽度的 35% 左右。
+            # 这个比例既能让节点散开看清结构，又不会占满全图。
+            TARGET_SCALE_RATIO = 0.75 
+            
+            scale_x = (bg_width * TARGET_SCALE_RATIO) / cov_width
+            scale_y = (bg_height * TARGET_SCALE_RATIO) / cov_height
+            final_scale = min(scale_x, scale_y) # 保持原始长宽比
+            
+            # D. 应用变换
+            for n in all_covert_nodes:
+                original_pos = np.array(pos[n])
+                
+                # 1. 归一化 (相对于隐蔽群重心)
+                relative = original_pos - cov_center
+                
+                # 2. 缩放并移动到目标中心
+                new_pos = target_center + (relative * final_scale)
+                
+                pos[n] = tuple(new_pos)
+
+        # ==========================
+        # 5. 绘制图层 (保持不变)
+        # ==========================
+        covert_txs_list = [n for n in all_covert_nodes if n in covert_tx_ids]
+        covert_addrs_list = [n for n in all_covert_nodes if n not in covert_tx_ids]
+
+        bg_edges = []
+        covert_edges = []
+        for u, v in self.graph.edges():
+            if u in all_covert_nodes and v in all_covert_nodes:
+                covert_edges.append((u, v))
+            else:
+                bg_edges.append((u, v))
+
+        ax = plt.gca()
+        
+        SIZE_BG = 10      
+        SIZE_COVERT = 15  
+        
+        # Layer 1: 背景
+        nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
+                            node_color='#C0C0C0', node_size=SIZE_BG, 
+                            alpha=0.5, linewidths=0, ax=ax)
+        
+        nx.draw_networkx_edges(self.graph, pos, edgelist=bg_edges, 
+                            edge_color='#C0C0C0', arrows=False, 
+                            width=0.5, alpha=0.3, ax=ax)
+
+        # Layer 2: 隐蔽链路
+        nx.draw_networkx_edges(self.graph, pos, edgelist=covert_edges, 
+                            edge_color='#FF4500', node_size=SIZE_COVERT, 
+                            arrowstyle='-|>', arrowsize=8, 
+                            width=1.0, alpha=0.9, ax=ax)
+
+        # Layer 3: 隐蔽地址
+        nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_addrs_list, 
+                            node_color='#1E90FF', node_shape='o', 
+                            node_size=SIZE_COVERT, alpha=1.0, 
+                            linewidths=0.5, edgecolors='white', ax=ax)
+
+        # Layer 4: 隐蔽交易
+        nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_txs_list, 
+                            node_color='#D62728', node_shape='^', 
+                            node_size=SIZE_COVERT, alpha=1.0, 
+                            linewidths=0.5, edgecolors='black', ax=ax)
+
+        # ==========================
+        # 6. 图例与保存
+        # ==========================
+        import matplotlib.patches as mpatches # 确保导入
+        legend_elements = [
+            mpatches.Patch(color='#D62728', label='隐蔽交易 (Tx)'),
+            mpatches.Patch(color='#1E90FF', label='隐蔽地址 (Addr)'),
+            mpatches.Patch(color='#C0C0C0', label='正常交易背景'),
+        ]
+        
+        plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
+        plt.title(f"比特币混合交易图谱 (局部聚集优化)", fontsize=14)
+        plt.axis('off')
+
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"bitcoin_vis_localized_{timestamp}.pdf"
+        plt.savefig(filename, format="pdf", bbox_inches="tight", dpi=300)
+        print(f"绘图完成，已保存至: {filename}")
+        plt.show()
+    
     def get_graph_info(self):
         """获取图的基本信息"""
         print("=== 比特币交易图信息 ===")
