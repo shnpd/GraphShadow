@@ -314,14 +314,461 @@ class BitcoinTransactionGraph:
         
 
 
-    def visualize_chain_covert(self, covert_tx_ids=None):
-        """
-        基于 Neato 布局的优化可视化 (边界约束 + 随机边长版)。
+    # def visualize_chain_covert(self, covert_tx_ids=None):
+    #     """
+    #     基于 Neato 布局的优化可视化 (边界约束 + 随机边长版)。
         
-        改进点：
-        1. 缩短边长：让链条更紧凑。
-        2. 随机边长：每一步的距离随机化，不再是死板的等长。
-        3. 边界约束：计算生成的链条坐标，如果超出背景图范围，强制将其平移回图内。
+    #     改进点：
+    #     1. 缩短边长：让链条更紧凑。
+    #     2. 随机边长：每一步的距离随机化，不再是死板的等长。
+    #     3. 边界约束：计算生成的链条坐标，如果超出背景图范围，强制将其平移回图内。
+    #     """
+    #     if covert_tx_ids is None:
+    #         covert_tx_ids = set()
+    #     else:
+    #         covert_tx_ids = set(covert_tx_ids)
+
+    #     # 1. 基础设置
+    #     plt.rcParams['font.sans-serif'] = ['SimHei']
+    #     plt.rcParams['axes.unicode_minus'] = False
+    #     plt.figure(figsize=(14, 14), dpi=200) 
+        
+    #     print(f"正在计算布局 (节点数: {self.graph.number_of_nodes()})...")
+
+    #     # ==========================
+    #     # 2. 全局布局 (Neato)
+    #     # ==========================
+    #     try:
+    #         # 使用 Neato 保持全局拓扑
+    #         pos = nx.nx_agraph.pygraphviz_layout(
+    #             self.graph,
+    #             prog="neato",
+    #             # 适当减小排斥力，让背景紧凑一些
+    #             args="-Grepulsiveforce=1.0 -Goverlap=False -Gmaxiter=1000"
+    #         )
+    #     except Exception as e:
+    #         print(f"PyGraphviz layout failed ({e}), falling back to spring_layout...")
+    #         pos = nx.spring_layout(self.graph, k=0.03, iterations=100, seed=42)
+
+    #     # ==========================
+    #     # 3. 链式结构优化 (核心修改)
+    #     # ==========================
+    #     print("正在执行链式结构优化 (随机化 + 边界检查)...")
+
+    #     # A. 获取背景图的边界范围 (用于限制隐蔽链)
+    #     all_coords = np.array(list(pos.values()))
+    #     x_min, x_max = np.min(all_coords[:, 0]), np.max(all_coords[:, 0])
+    #     y_min, y_max = np.min(all_coords[:, 1]), np.max(all_coords[:, 1])
+        
+    #     # 留出 5% 的边距 margin，防止贴边
+    #     width = x_max - x_min
+    #     height = y_max - y_min
+    #     margin_x = width * 0.05
+    #     margin_y = height * 0.05
+    #     safe_x_min, safe_x_max = x_min + margin_x, x_max - margin_x
+    #     safe_y_min, safe_y_max = y_min + margin_y, y_max - margin_y
+
+    #     # B. 识别隐蔽链
+    #     covert_related_addrs = set()
+    #     for tx_id in covert_tx_ids:
+    #         if tx_id in self.graph:
+    #             neighbors = list(self.graph.successors(tx_id)) + list(self.graph.predecessors(tx_id))
+    #             covert_related_addrs.update(neighbors)
+    #     all_covert_nodes = covert_tx_ids.union(covert_related_addrs)
+        
+    #     if all_covert_nodes:
+    #         covert_subgraph = self.graph.subgraph(all_covert_nodes)
+            
+    #         # 寻找链头
+    #         chain_heads = [n for n in covert_subgraph.nodes() if covert_subgraph.in_degree(n) == 0]
+    #         if not chain_heads: chain_heads = [list(all_covert_nodes)[0]]
+
+    #         chains = []
+    #         visited = set()
+    #         for head in chain_heads:
+    #             if head in visited: continue
+    #             chain = []
+    #             curr = head
+    #             while True:
+    #                 visited.add(curr)
+    #                 chain.append(curr)
+    #                 succs = [n for n in covert_subgraph.successors(curr) if n not in visited]
+    #                 if not succs: break
+    #                 curr = succs[0]
+    #             if len(chain) > 1:
+    #                 chains.append(chain)
+
+    #         # C. 几何整形
+            
+    #         # 【修改1】缩小基础步长 (从 1/20 缩小到 1/35)
+    #         avg_span = (width + height) / 2.0
+    #         BASE_SPACING = avg_span / 35.0 
+            
+    #         # 【修改2】波动幅度
+    #         WAVE_AMPLITUDE = BASE_SPACING * 0.4 
+
+    #         for chain in chains:
+    #             # 获取原位置以计算重心
+    #             orig_points = np.array([pos[n] for n in chain])
+    #             centroid = np.mean(orig_points, axis=0)
+                
+    #             # --- 确定方向 (随机旋转) ---
+    #             random_angle = random.uniform(0, 2 * math.pi) 
+    #             u_vec = np.array([math.cos(random_angle), math.sin(random_angle)]) # 前进方向
+    #             v_vec = np.array([-u_vec[1], u_vec[0]]) # 侧向波动方向
+                
+    #             # --- 预计算整条链的形状 (以 (0,0) 为原点) ---
+    #             chain_local_coords = []
+    #             current_dist = 0.0
+                
+    #             # 链的总长度将动态计算
+    #             for i in range(len(chain)):
+    #                 # 【修改3】每段长度随机化 (0.6 ~ 1.4 倍基础步长)
+    #                 if i > 0:
+    #                     segment_len = BASE_SPACING * random.uniform(0.6, 1.4)
+    #                     current_dist += segment_len
+                    
+    #                 # 侧向波动
+    #                 lateral_offset = random.uniform(-WAVE_AMPLITUDE, WAVE_AMPLITUDE)
+                    
+    #                 # 局部坐标 = 前进距离 * u + 侧向偏移 * v
+    #                 local_pos = (u_vec * current_dist) + (v_vec * lateral_offset)
+    #                 chain_local_coords.append(local_pos)
+                
+    #             chain_local_coords = np.array(chain_local_coords)
+                
+    #             # 将局部坐标的中心对齐到 (0,0)
+    #             local_center = np.mean(chain_local_coords, axis=0)
+    #             chain_centered = chain_local_coords - local_center
+                
+    #             # --- 将链放置到重心位置 ---
+    #             final_coords = chain_centered + centroid
+                
+    #             # --- 【修改4】边界检查与修正 (Shift Strategy) ---
+    #             # 检查生成的链条是否超出了安全边界
+    #             c_x_min, c_x_max = np.min(final_coords[:, 0]), np.max(final_coords[:, 0])
+    #             c_y_min, c_y_max = np.min(final_coords[:, 1]), np.max(final_coords[:, 1])
+                
+    #             shift_x = 0
+    #             shift_y = 0
+                
+    #             # 如果左边超了，往右移
+    #             if c_x_min < safe_x_min: 
+    #                 shift_x = safe_x_min - c_x_min
+    #             # 如果右边超了，往左移 (注意：如果链条极长，可能需要缩放，这里优先平移)
+    #             elif c_x_max > safe_x_max: 
+    #                 shift_x = safe_x_max - c_x_max
+                    
+    #             if c_y_min < safe_y_min: 
+    #                 shift_y = safe_y_min - c_y_min
+    #             elif c_y_max > safe_y_max: 
+    #                 shift_y = safe_y_max - c_y_max
+                
+    #             # 应用平移
+    #             final_coords += np.array([shift_x, shift_y])
+                
+    #             # --- 更新 pos ---
+    #             for i, node in enumerate(chain):
+    #                 pos[node] = final_coords[i]
+
+    #     # ==========================
+    #     # 4. 节点筛选
+    #     # ==========================
+    #     bg_nodes = []
+    #     covert_addrs = []
+    #     covert_txs = []
+        
+    #     for n, attr in self.graph.nodes(data=True):
+    #         if n in covert_tx_ids:
+    #             covert_txs.append(n)
+    #         elif n in covert_related_addrs:
+    #             covert_addrs.append(n)
+    #         else:
+    #             bg_nodes.append(n)
+
+    #     bg_edges = []
+    #     covert_edges = []
+    #     for u, v in self.graph.edges():
+    #         if u in all_covert_nodes and v in all_covert_nodes:
+    #             covert_edges.append((u, v))
+    #         else:
+    #             bg_edges.append((u, v))
+
+    #     # ==========================
+    #     # 5. 绘制
+    #     # ==========================
+    #     print("开始绘制...")
+    #     ax = plt.gca()
+        
+    #     SIZE_BG = 10        
+    #     SIZE_COVERT = 40    
+        
+    #     # Layer 1: 背景
+    #     nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
+    #                         node_color='#C0C0C0', node_size=SIZE_BG, 
+    #                         alpha=0.5, linewidths=0, ax=ax)
+    #     nx.draw_networkx_edges(self.graph, pos, edgelist=bg_edges, 
+    #                         edge_color='#D0D0D0', arrows=False, 
+    #                         width=0.4, alpha=0.3, ax=ax)
+
+    #     # Layer 2: 隐蔽链连线 (橙色)
+    #     # 使用 arc3,rad=0.05 增加一点点自然的弯曲感
+    #     nx.draw_networkx_edges(self.graph, pos, edgelist=covert_edges, 
+    #                         edge_color='#FF4500', 
+    #                         node_size=SIZE_COVERT,  
+    #                         arrowstyle='-|>', arrowsize=10, 
+    #                         width=1.2, alpha=1.0, 
+    #                         connectionstyle="arc3,rad=0.05",
+    #                         ax=ax)
+
+    #     # Layer 3: 隐蔽地址 (蓝色圆点)
+    #     nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_addrs, 
+    #                         node_color='#1E90FF', node_shape='o', 
+    #                         node_size=SIZE_COVERT, 
+    #                         alpha=1.0, linewidths=0.5, edgecolors='white', 
+    #                         ax=ax)
+
+    #     # Layer 4: 隐蔽交易 (红色三角)
+    #     nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_txs, 
+    #                         node_color='#D62728', node_shape='^', 
+    #                         node_size=SIZE_COVERT + 10, 
+    #                         alpha=1.0, linewidths=0.5, edgecolors='black', 
+    #                         ax=ax)
+
+    #     # 6. 图例与保存
+    #     legend_elements = [
+    #         mpatches.Patch(color='#D62728', label='隐蔽交易'),
+    #         mpatches.Patch(color='#1E90FF', label='隐蔽地址'),
+    #         mpatches.Patch(color='#C0C0C0', label='正常交易图'),
+    #     ]
+    #     plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    #     plt.title(f"比特币混合交易图谱", fontsize=14)
+    #     plt.axis('off')
+
+    #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #     filename = f"bitcoin_vis_final_optimized_{timestamp}.pdf"
+    #     plt.savefig(filename, format="pdf", bbox_inches="tight", dpi=300)
+    #     print(f"绘图完成，已保存至: {filename}")
+    #     plt.show()
+
+
+    # def visualize_VGAE_covert(self, covert_tx_ids=None):
+    #     """
+    #     [最终定稿版] 
+    #     方法名：visualize_VGAE_covert
+    #     逻辑：边界约束 + 原地分层重排 (Bounded In-place Layered Layout)
+        
+    #     特性：
+    #     1. 背景：保留全局力导向布局，展示宏观结构。
+    #     2. 前景：解析隐蔽交易的轮次 (Input->R1->R2...)，将其在原地重排为分层结构。
+    #     3. 约束：严格限制隐蔽节点坐标不超过背景图边界。
+    #     4. 样式：严格保持 Size=10(背景)/25(隐蔽)，无额外文字标注。
+    #     """
+    #     import matplotlib.pyplot as plt
+    #     import matplotlib.patches as mpatches
+    #     import networkx as nx
+    #     import numpy as np
+    #     import re
+    #     from collections import defaultdict
+    #     from datetime import datetime
+
+    #     if covert_tx_ids is None:
+    #         covert_tx_ids = set()
+    #     else:
+    #         covert_tx_ids = set(covert_tx_ids)
+
+    #     # 1. 基础设置
+    #     plt.rcParams['font.sans-serif'] = ['SimHei']
+    #     plt.rcParams['axes.unicode_minus'] = False
+    #     plt.figure(figsize=(14, 14), dpi=200) 
+        
+    #     print(f"1. 正在计算全局布局 (节点数: {self.graph.number_of_nodes()})...")
+
+    #     # ==========================
+    #     # 2. 全局布局 (计算初始位置)
+    #     # ==========================
+    #     try:
+    #         # 优先使用 Neato 获得较好的全局观
+    #         pos = nx.nx_agraph.pygraphviz_layout(
+    #             self.graph,
+    #             prog="neato",
+    #             # 稍微增大排斥力，为原地展开留一点缝隙
+    #             args="-Grepulsiveforce=1.2 -Goverlap=False -Gmaxiter=1000"
+    #         )
+    #     except Exception:
+    #         print("PyGraphviz layout failed, using spring_layout...")
+    #         pos = nx.spring_layout(self.graph, k=0.03, iterations=50, seed=42)
+
+    #     # ==========================
+    #     # 3. 筛选与分类
+    #     # ==========================
+    #     # A. 找出所有隐蔽相关节点
+    #     covert_related_addrs = set()
+    #     for tx_id in covert_tx_ids:
+    #         if tx_id in self.graph:
+    #             neighbors = list(self.graph.successors(tx_id)) + list(self.graph.predecessors(tx_id))
+    #             covert_related_addrs.update(neighbors)
+        
+    #     all_covert_nodes = list(covert_tx_ids.union(covert_related_addrs))
+    #     covert_node_set = set(all_covert_nodes)
+        
+    #     # B. 节点分类 (用于绘图)
+    #     bg_nodes = []
+    #     covert_addrs_list = []
+    #     covert_txs_list = []
+        
+    #     for n, attr in self.graph.nodes(data=True):
+    #         if n in covert_tx_ids:
+    #             covert_txs_list.append(n)
+    #         elif n in covert_related_addrs:
+    #             covert_addrs_list.append(n)
+    #         else:
+    #             bg_nodes.append(n)
+
+    #     # ==========================
+    #     # 4. 原地分层重排与边界约束
+    #     # ==========================
+    #     if len(all_covert_nodes) > 0 and len(bg_nodes) > 0:
+    #         print("2. 执行原地分层重排与边界约束...")
+            
+    #         # A. 获取背景节点的物理边界 (Bounding Box)
+    #         bg_coords = np.array([pos[n] for n in bg_nodes])
+    #         bg_x_min, bg_x_max = np.min(bg_coords[:, 0]), np.max(bg_coords[:, 0])
+    #         bg_y_min, bg_y_max = np.min(bg_coords[:, 1]), np.max(bg_coords[:, 1])
+            
+    #         bg_width = bg_x_max - bg_x_min
+    #         bg_height = bg_y_max - bg_y_min
+            
+    #         # B. 计算当前隐蔽团簇的重心 (作为原地展开的锚点)
+    #         curr_x = [pos[n][0] for n in all_covert_nodes]
+    #         curr_y = [pos[n][1] for n in all_covert_nodes]
+    #         center_x = sum(curr_x) / len(curr_x)
+    #         center_y = sum(curr_y) / len(curr_y)
+            
+    #         # 确保锚点本身在边界内
+    #         center_x = max(bg_x_min, min(bg_x_max, center_x))
+    #         center_y = max(bg_y_min, min(bg_y_max, center_y))
+
+    #         # --- 分层逻辑 ---
+    #         layers = defaultdict(list)
+    #         for node in all_covert_nodes:
+    #             node_str = str(node)
+    #             layer_idx = 0
+                
+    #             # 解析 Round 信息 (例如 _R1_ -> 第2层, Tx -> 第3层, _R2_ -> 第4层)
+    #             match = re.search(r"_R(\d+)_", node_str)
+    #             if match:
+    #                 layer_idx = int(match.group(1)) * 2
+    #             elif len(node_str) == 64: 
+    #                 # 交易节点层级 = 前驱地址层级 + 1
+    #                 preds = list(self.graph.predecessors(node))
+    #                 max_pred_layer = 0
+    #                 for p in preds:
+    #                     m = re.search(r"_R(\d+)_", str(p))
+    #                     if m: max_pred_layer = max(max_pred_layer, int(m.group(1)) * 2)
+    #                 layer_idx = max_pred_layer + 1
+    #             else:
+    #                 layer_idx = 0 # 初始输入
+                
+    #             layers[layer_idx].append(node)
+            
+    #         # C. 设定间距 (相对于背景尺寸)
+    #         # 这里的系数决定了隐蔽子图的"疏密程度"
+    #         X_STEP = bg_width * 0.035  # 层间距 (左右)
+    #         Y_STEP = bg_height * 0.025 # 节点间距 (上下)
+            
+    #         sorted_layers = sorted(layers.keys())
+    #         num_layers = len(sorted_layers)
+            
+    #         # D. 计算新坐标并应用约束
+    #         for i, l_idx in enumerate(sorted_layers):
+    #             nodes = layers[l_idx]
+    #             nodes.sort() # 保证同一层内顺序固定
+                
+    #             # X轴: 居中展开
+    #             layer_offset_x = i - (num_layers / 2.0)
+    #             this_x = center_x + (layer_offset_x * X_STEP)
+                
+    #             # Y轴: 居中展开
+    #             layer_height = (len(nodes) - 1) * Y_STEP
+    #             start_y = center_y - (layer_height / 2.0)
+                
+    #             for j, node in enumerate(nodes):
+    #                 this_y = start_y + (j * Y_STEP)
+                    
+    #                 # 【核心约束】Clamp: 强制截断坐标至背景边界内
+    #                 final_x = max(bg_x_min, min(bg_x_max, this_x))
+    #                 final_y = max(bg_y_min, min(bg_y_max, this_y))
+                    
+    #                 pos[node] = (final_x, final_y)
+
+    #     # ==========================
+    #     # 5. 绘制 (样式严格保持不变)
+    #     # ==========================
+    #     print("3. 开始绘制...")
+    #     ax = plt.gca()
+        
+    #     SIZE_BG = 10        # 背景节点大小
+    #     SIZE_COVERT = 25    # 隐蔽节点大小
+        
+    #     # 背景节点
+    #     nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
+    #                         node_color='#C0C0C0', node_size=SIZE_BG, 
+    #                         alpha=0.6, linewidths=0, ax=ax)
+        
+    #     # 背景边
+    #     bg_edges = [(u, v) for u, v in self.graph.edges() if u not in covert_node_set]
+    #     nx.draw_networkx_edges(self.graph, pos, edgelist=bg_edges, 
+    #                         edge_color='#C0C0C0', arrows=False, 
+    #                         width=0.5, alpha=0.4, ax=ax)
+
+    #     # 隐蔽连线 (直线)
+    #     covert_edges = [(u, v) for u, v in self.graph.edges() if u in covert_node_set and v in covert_node_set]
+    #     nx.draw_networkx_edges(self.graph, pos, edgelist=covert_edges, 
+    #                         edge_color='#FF4500', 
+    #                         node_size=SIZE_COVERT, 
+    #                         arrowstyle='-|>', arrowsize=8, 
+    #                         width=1.0, alpha=1.0, ax=ax)
+
+    #     # 隐蔽地址 (蓝色圆点)
+    #     nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_addrs_list, 
+    #                         node_color='#1E90FF', node_shape='o', 
+    #                         node_size=SIZE_COVERT, 
+    #                         alpha=1.0, linewidths=0.5, edgecolors='white', 
+    #                         ax=ax)
+
+    #     # 隐蔽交易 (红色三角)
+    #     nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_txs_list, 
+    #                         node_color='#D62728', node_shape='^', 
+    #                         node_size=SIZE_COVERT, 
+    #                         alpha=1.0, linewidths=0.5, edgecolors='black', 
+    #                         ax=ax)
+
+    #     # ==========================
+    #     # 6. 保存为 PDF
+    #     # ==========================
+    #     legend_elements = [
+    #         mpatches.Patch(color='#D62728', label='隐蔽交易 (Tx)'),
+    #         mpatches.Patch(color='#1E90FF', label='隐蔽地址 (Addr)'),
+    #         mpatches.Patch(color='#C0C0C0', label='背景交易'),
+    #     ]
+    #     plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    #     plt.title(f"比特币混合交易图谱 (VGAE原地分层)", fontsize=14)
+    #     plt.axis('off')
+
+    #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #     filename = f"visualize_VGAE_covert_{timestamp}.pdf"
+    #     plt.savefig(filename, format="pdf", bbox_inches='tight', dpi=300)
+    #     print(f"绘图完成，已保存至: {filename}")
+    #     plt.show()
+        
+
+
+
+    def visualize_VGAE_covert(self, covert_tx_ids=None):
+        """
+        针对 3000+ 节点优化的可视化方法。
+        调整：增强背景正常交易的可见度，同时对隐蔽交易进行局部布局优化（拉开距离）。
         """
         if covert_tx_ids is None:
             covert_tx_ids = set()
@@ -331,152 +778,83 @@ class BitcoinTransactionGraph:
         # 1. 基础设置
         plt.rcParams['font.sans-serif'] = ['SimHei']
         plt.rcParams['axes.unicode_minus'] = False
-        plt.figure(figsize=(14, 14), dpi=200) 
+        
+        # 画布大小保持
+        plt.figure(figsize=(12, 12), dpi=200) 
         
         print(f"正在计算布局 (节点数: {self.graph.number_of_nodes()})...")
 
         # ==========================
-        # 2. 全局布局 (Neato)
+        # 2. 全局布局计算 (保持原有的背景布局)
         # ==========================
         try:
-            # 使用 Neato 保持全局拓扑
             pos = nx.nx_agraph.pygraphviz_layout(
                 self.graph,
                 prog="neato",
-                # 适当减小排斥力，让背景紧凑一些
-                args="-Grepulsiveforce=1.0 -Goverlap=False -Gmaxiter=1000"
+                # 稍微减小一点排斥力，让背景稍微聚拢一点，看起来更紧凑
+                args="-Grepulsiveforce=1.2 -Goverlap=False -Gmaxiter=1000"
             )
         except Exception as e:
-            print(f"PyGraphviz layout failed ({e}), falling back to spring_layout...")
-            pos = nx.spring_layout(self.graph, k=0.03, iterations=100, seed=42)
+            print(f"PyGraphviz layout failed, using spring_layout... ({e})")
+            pos = nx.spring_layout(self.graph, k=0.04, iterations=100, seed=42)
 
         # ==========================
-        # 3. 链式结构优化 (核心修改)
+        # 3. 节点筛选与归类
         # ==========================
-        print("正在执行链式结构优化 (随机化 + 边界检查)...")
-
-        # A. 获取背景图的边界范围 (用于限制隐蔽链)
-        all_coords = np.array(list(pos.values()))
-        x_min, x_max = np.min(all_coords[:, 0]), np.max(all_coords[:, 0])
-        y_min, y_max = np.min(all_coords[:, 1]), np.max(all_coords[:, 1])
         
-        # 留出 5% 的边距 margin，防止贴边
-        width = x_max - x_min
-        height = y_max - y_min
-        margin_x = width * 0.05
-        margin_y = height * 0.05
-        safe_x_min, safe_x_max = x_min + margin_x, x_max - margin_x
-        safe_y_min, safe_y_max = y_min + margin_y, y_max - margin_y
-
-        # B. 识别隐蔽链
+        # A. 找出隐蔽地址
         covert_related_addrs = set()
         for tx_id in covert_tx_ids:
             if tx_id in self.graph:
                 neighbors = list(self.graph.successors(tx_id)) + list(self.graph.predecessors(tx_id))
                 covert_related_addrs.update(neighbors)
-        all_covert_nodes = covert_tx_ids.union(covert_related_addrs)
         
-        if all_covert_nodes:
+        all_covert_nodes = list(covert_tx_ids.union(covert_related_addrs))
+
+        # ==========================
+        # 【核心修改】 隐蔽交易局部布局优化
+        # ==========================
+        if len(all_covert_nodes) > 1:
+            print("正在优化隐蔽交易拓扑布局...")
+            # 1. 提取隐蔽子图
             covert_subgraph = self.graph.subgraph(all_covert_nodes)
             
-            # 寻找链头
-            chain_heads = [n for n in covert_subgraph.nodes() if covert_subgraph.in_degree(n) == 0]
-            if not chain_heads: chain_heads = [list(all_covert_nodes)[0]]
-
-            chains = []
-            visited = set()
-            for head in chain_heads:
-                if head in visited: continue
-                chain = []
-                curr = head
-                while True:
-                    visited.add(curr)
-                    chain.append(curr)
-                    succs = [n for n in covert_subgraph.successors(curr) if n not in visited]
-                    if not succs: break
-                    curr = succs[0]
-                if len(chain) > 1:
-                    chains.append(chain)
-
-            # C. 几何整形
+            # 2. 计算子图的重心 (以便稍后放回原位)
+            # 获取当前这些节点在全局图中的坐标平均值
+            xs = [pos[n][0] for n in all_covert_nodes]
+            ys = [pos[n][1] for n in all_covert_nodes]
+            center_x = sum(xs) / len(xs)
+            center_y = sum(ys) / len(ys)
             
-            # 【修改1】缩小基础步长 (从 1/20 缩小到 1/35)
-            avg_span = (width + height) / 2.0
-            BASE_SPACING = avg_span / 35.0 
+            # 3. 对子图单独应用布局算法 (增加 k 值以拉开距离)
+            # k 值越大，节点间斥力越大；iterations 增加以保证舒展
+            sub_pos = nx.spring_layout(covert_subgraph, k=0.8, iterations=100, seed=101)
             
-            # 【修改2】波动幅度
-            WAVE_AMPLITUDE = BASE_SPACING * 0.4 
-
-            for chain in chains:
-                # 获取原位置以计算重心
-                orig_points = np.array([pos[n] for n in chain])
-                centroid = np.mean(orig_points, axis=0)
-                
-                # --- 确定方向 (随机旋转) ---
-                random_angle = random.uniform(0, 2 * math.pi) 
-                u_vec = np.array([math.cos(random_angle), math.sin(random_angle)]) # 前进方向
-                v_vec = np.array([-u_vec[1], u_vec[0]]) # 侧向波动方向
-                
-                # --- 预计算整条链的形状 (以 (0,0) 为原点) ---
-                chain_local_coords = []
-                current_dist = 0.0
-                
-                # 链的总长度将动态计算
-                for i in range(len(chain)):
-                    # 【修改3】每段长度随机化 (0.6 ~ 1.4 倍基础步长)
-                    if i > 0:
-                        segment_len = BASE_SPACING * random.uniform(0.6, 1.4)
-                        current_dist += segment_len
-                    
-                    # 侧向波动
-                    lateral_offset = random.uniform(-WAVE_AMPLITUDE, WAVE_AMPLITUDE)
-                    
-                    # 局部坐标 = 前进距离 * u + 侧向偏移 * v
-                    local_pos = (u_vec * current_dist) + (v_vec * lateral_offset)
-                    chain_local_coords.append(local_pos)
-                
-                chain_local_coords = np.array(chain_local_coords)
-                
-                # 将局部坐标的中心对齐到 (0,0)
-                local_center = np.mean(chain_local_coords, axis=0)
-                chain_centered = chain_local_coords - local_center
-                
-                # --- 将链放置到重心位置 ---
-                final_coords = chain_centered + centroid
-                
-                # --- 【修改4】边界检查与修正 (Shift Strategy) ---
-                # 检查生成的链条是否超出了安全边界
-                c_x_min, c_x_max = np.min(final_coords[:, 0]), np.max(final_coords[:, 0])
-                c_y_min, c_y_max = np.min(final_coords[:, 1]), np.max(final_coords[:, 1])
-                
-                shift_x = 0
-                shift_y = 0
-                
-                # 如果左边超了，往右移
-                if c_x_min < safe_x_min: 
-                    shift_x = safe_x_min - c_x_min
-                # 如果右边超了，往左移 (注意：如果链条极长，可能需要缩放，这里优先平移)
-                elif c_x_max > safe_x_max: 
-                    shift_x = safe_x_max - c_x_max
-                    
-                if c_y_min < safe_y_min: 
-                    shift_y = safe_y_min - c_y_min
-                elif c_y_max > safe_y_max: 
-                    shift_y = safe_y_max - c_y_max
-                
-                # 应用平移
-                final_coords += np.array([shift_x, shift_y])
-                
-                # --- 更新 pos ---
-                for i, node in enumerate(chain):
-                    pos[node] = final_coords[i]
+            # 4. 坐标变换：缩放并平移回原重心
+            # spring_layout 生成的坐标通常在 (-1, 1) 之间，需要根据背景图的尺度进行缩放
+            # 计算背景图的大致跨度
+            all_xs = [c[0] for c in pos.values()]
+            all_ys = [c[1] for c in pos.values()]
+            span_x = max(all_xs) - min(all_xs)
+            span_y = max(all_ys) - min(all_ys)
+            
+            # 缩放因子：让隐蔽子图占据大约背景图 1/5 到 1/4 的大小，确保能看清
+            scale_factor = min(span_x, span_y) * 0.20 
+            
+            for node, coords in sub_pos.items():
+                # 新坐标 = 重心 + (局部坐标 * 缩放因子)
+                new_x = center_x + coords[0] * scale_factor
+                new_y = center_y + coords[1] * scale_factor
+                pos[node] = (new_x, new_y)
 
         # ==========================
-        # 4. 节点筛选
+        # 接下来继续原有的分类与绘制逻辑
         # ==========================
-        bg_nodes = []
-        covert_addrs = []
-        covert_txs = []
+
+        # B. 节点分类
+        bg_nodes = []       # 背景噪音 (灰色)
+        covert_addrs = []   # 隐蔽地址 (蓝色)
+        covert_txs = []     # 隐蔽交易 (红色)
         
         for n, attr in self.graph.nodes(data=True):
             if n in covert_tx_ids:
@@ -486,282 +864,86 @@ class BitcoinTransactionGraph:
             else:
                 bg_nodes.append(n)
 
+        # C. 边分类
         bg_edges = []
         covert_edges = []
+        
+        # 将 set 转换为 frozen set 以加速查找 (或者直接用上面的 list)
+        covert_node_set = set(all_covert_nodes)
+        
         for u, v in self.graph.edges():
-            if u in all_covert_nodes and v in all_covert_nodes:
+            if u in covert_node_set and v in covert_node_set:
                 covert_edges.append((u, v))
             else:
                 bg_edges.append((u, v))
 
-        # ==========================
-        # 5. 绘制
-        # ==========================
         print("开始绘制...")
         ax = plt.gca()
-        
-        SIZE_BG = 10        
-        SIZE_COVERT = 40    
-        
-        # Layer 1: 背景
-        nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
-                            node_color='#C0C0C0', node_size=SIZE_BG, 
-                            alpha=0.5, linewidths=0, ax=ax)
-        nx.draw_networkx_edges(self.graph, pos, edgelist=bg_edges, 
-                            edge_color='#D0D0D0', arrows=False, 
-                            width=0.4, alpha=0.3, ax=ax)
 
-        # Layer 2: 隐蔽链连线 (橙色)
-        # 使用 arc3,rad=0.05 增加一点点自然的弯曲感
-        nx.draw_networkx_edges(self.graph, pos, edgelist=covert_edges, 
-                            edge_color='#FF4500', 
-                            node_size=SIZE_COVERT,  
-                            arrowstyle='-|>', arrowsize=10, 
-                            width=1.2, alpha=1.0, 
-                            connectionstyle="arc3,rad=0.05",
+        # ==========================
+        # 4. 精细化绘制 (尺寸调整)
+        # ==========================
+        
+        # --- 尺寸参数定义 (修改点) ---
+        SIZE_BG = 10        # 【修改】从 2 增大到 10，让正常节点清晰可见
+        SIZE_COVERT = 15    # 隐蔽节点保持稍大，形成对比
+        
+        # --- Layer 1: 背景 (增强可见度) ---
+        # 节点：颜色稍微加深，透明度提高
+        nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
+                            node_color='#C0C0C0', # 【修改】颜色加深一点 (原 #E0E0E0)
+                            node_size=SIZE_BG, 
+                            alpha=0.6,            # 【修改】透明度提高 (原 0.3)
+                            linewidths=0, ax=ax)
+        
+        # 边：线条加粗，透明度提高
+        nx.draw_networkx_edges(self.graph, pos, edgelist=bg_edges, 
+                            edge_color='#C0C0C0', # 【修改】颜色加深
+                            arrows=False, 
+                            width=0.5,            # 【修改】线条加粗 (原 0.2)
+                            alpha=0.4,            # 【修改】透明度提高 (原 0.2)
                             ax=ax)
 
-        # Layer 3: 隐蔽地址 (蓝色圆点)
+        # --- Layer 2: 隐蔽链路 (Link Layer) ---
+        nx.draw_networkx_edges(self.graph, pos, edgelist=covert_edges, 
+                            edge_color='#FF4500', 
+                            node_size=SIZE_COVERT, 
+                            arrowstyle='-|>', arrowsize=4, 
+                            width=0.5, alpha=1.0, # 隐蔽连线设为完全不透明
+                            ax=ax)
+
+        # --- Layer 3: 隐蔽地址 (Blue Nodes) ---
         nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_addrs, 
                             node_color='#1E90FF', node_shape='o', 
                             node_size=SIZE_COVERT, 
                             alpha=1.0, linewidths=0.5, edgecolors='white', 
                             ax=ax)
 
-        # Layer 4: 隐蔽交易 (红色三角)
+        # --- Layer 4: 隐蔽交易 (Red Nodes) ---
         nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_txs, 
                             node_color='#D62728', node_shape='^', 
-                            node_size=SIZE_COVERT + 10, 
-                            alpha=1.0, linewidths=0.5, edgecolors='black', 
-                            ax=ax)
-
-        # 6. 图例与保存
-        legend_elements = [
-            mpatches.Patch(color='#D62728', label='隐蔽交易'),
-            mpatches.Patch(color='#1E90FF', label='隐蔽地址'),
-            mpatches.Patch(color='#C0C0C0', label='正常交易图'),
-        ]
-        plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
-        plt.title(f"比特币混合交易图谱", fontsize=14)
-        plt.axis('off')
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"bitcoin_vis_final_optimized_{timestamp}.pdf"
-        plt.savefig(filename, format="pdf", bbox_inches="tight", dpi=300)
-        print(f"绘图完成，已保存至: {filename}")
-        plt.show()
-
-
-    def visualize_VGAE_covert(self, covert_tx_ids=None):
-        """
-        [最终定稿版] 
-        方法名：visualize_VGAE_covert
-        逻辑：边界约束 + 原地分层重排 (Bounded In-place Layered Layout)
-        
-        特性：
-        1. 背景：保留全局力导向布局，展示宏观结构。
-        2. 前景：解析隐蔽交易的轮次 (Input->R1->R2...)，将其在原地重排为分层结构。
-        3. 约束：严格限制隐蔽节点坐标不超过背景图边界。
-        4. 样式：严格保持 Size=10(背景)/25(隐蔽)，无额外文字标注。
-        """
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as mpatches
-        import networkx as nx
-        import numpy as np
-        import re
-        from collections import defaultdict
-        from datetime import datetime
-
-        if covert_tx_ids is None:
-            covert_tx_ids = set()
-        else:
-            covert_tx_ids = set(covert_tx_ids)
-
-        # 1. 基础设置
-        plt.rcParams['font.sans-serif'] = ['SimHei']
-        plt.rcParams['axes.unicode_minus'] = False
-        plt.figure(figsize=(14, 14), dpi=200) 
-        
-        print(f"1. 正在计算全局布局 (节点数: {self.graph.number_of_nodes()})...")
-
-        # ==========================
-        # 2. 全局布局 (计算初始位置)
-        # ==========================
-        try:
-            # 优先使用 Neato 获得较好的全局观
-            pos = nx.nx_agraph.pygraphviz_layout(
-                self.graph,
-                prog="neato",
-                # 稍微增大排斥力，为原地展开留一点缝隙
-                args="-Grepulsiveforce=1.2 -Goverlap=False -Gmaxiter=1000"
-            )
-        except Exception:
-            print("PyGraphviz layout failed, using spring_layout...")
-            pos = nx.spring_layout(self.graph, k=0.03, iterations=50, seed=42)
-
-        # ==========================
-        # 3. 筛选与分类
-        # ==========================
-        # A. 找出所有隐蔽相关节点
-        covert_related_addrs = set()
-        for tx_id in covert_tx_ids:
-            if tx_id in self.graph:
-                neighbors = list(self.graph.successors(tx_id)) + list(self.graph.predecessors(tx_id))
-                covert_related_addrs.update(neighbors)
-        
-        all_covert_nodes = list(covert_tx_ids.union(covert_related_addrs))
-        covert_node_set = set(all_covert_nodes)
-        
-        # B. 节点分类 (用于绘图)
-        bg_nodes = []
-        covert_addrs_list = []
-        covert_txs_list = []
-        
-        for n, attr in self.graph.nodes(data=True):
-            if n in covert_tx_ids:
-                covert_txs_list.append(n)
-            elif n in covert_related_addrs:
-                covert_addrs_list.append(n)
-            else:
-                bg_nodes.append(n)
-
-        # ==========================
-        # 4. 原地分层重排与边界约束
-        # ==========================
-        if len(all_covert_nodes) > 0 and len(bg_nodes) > 0:
-            print("2. 执行原地分层重排与边界约束...")
-            
-            # A. 获取背景节点的物理边界 (Bounding Box)
-            bg_coords = np.array([pos[n] for n in bg_nodes])
-            bg_x_min, bg_x_max = np.min(bg_coords[:, 0]), np.max(bg_coords[:, 0])
-            bg_y_min, bg_y_max = np.min(bg_coords[:, 1]), np.max(bg_coords[:, 1])
-            
-            bg_width = bg_x_max - bg_x_min
-            bg_height = bg_y_max - bg_y_min
-            
-            # B. 计算当前隐蔽团簇的重心 (作为原地展开的锚点)
-            curr_x = [pos[n][0] for n in all_covert_nodes]
-            curr_y = [pos[n][1] for n in all_covert_nodes]
-            center_x = sum(curr_x) / len(curr_x)
-            center_y = sum(curr_y) / len(curr_y)
-            
-            # 确保锚点本身在边界内
-            center_x = max(bg_x_min, min(bg_x_max, center_x))
-            center_y = max(bg_y_min, min(bg_y_max, center_y))
-
-            # --- 分层逻辑 ---
-            layers = defaultdict(list)
-            for node in all_covert_nodes:
-                node_str = str(node)
-                layer_idx = 0
-                
-                # 解析 Round 信息 (例如 _R1_ -> 第2层, Tx -> 第3层, _R2_ -> 第4层)
-                match = re.search(r"_R(\d+)_", node_str)
-                if match:
-                    layer_idx = int(match.group(1)) * 2
-                elif len(node_str) == 64: 
-                    # 交易节点层级 = 前驱地址层级 + 1
-                    preds = list(self.graph.predecessors(node))
-                    max_pred_layer = 0
-                    for p in preds:
-                        m = re.search(r"_R(\d+)_", str(p))
-                        if m: max_pred_layer = max(max_pred_layer, int(m.group(1)) * 2)
-                    layer_idx = max_pred_layer + 1
-                else:
-                    layer_idx = 0 # 初始输入
-                
-                layers[layer_idx].append(node)
-            
-            # C. 设定间距 (相对于背景尺寸)
-            # 这里的系数决定了隐蔽子图的"疏密程度"
-            X_STEP = bg_width * 0.035  # 层间距 (左右)
-            Y_STEP = bg_height * 0.025 # 节点间距 (上下)
-            
-            sorted_layers = sorted(layers.keys())
-            num_layers = len(sorted_layers)
-            
-            # D. 计算新坐标并应用约束
-            for i, l_idx in enumerate(sorted_layers):
-                nodes = layers[l_idx]
-                nodes.sort() # 保证同一层内顺序固定
-                
-                # X轴: 居中展开
-                layer_offset_x = i - (num_layers / 2.0)
-                this_x = center_x + (layer_offset_x * X_STEP)
-                
-                # Y轴: 居中展开
-                layer_height = (len(nodes) - 1) * Y_STEP
-                start_y = center_y - (layer_height / 2.0)
-                
-                for j, node in enumerate(nodes):
-                    this_y = start_y + (j * Y_STEP)
-                    
-                    # 【核心约束】Clamp: 强制截断坐标至背景边界内
-                    final_x = max(bg_x_min, min(bg_x_max, this_x))
-                    final_y = max(bg_y_min, min(bg_y_max, this_y))
-                    
-                    pos[node] = (final_x, final_y)
-
-        # ==========================
-        # 5. 绘制 (样式严格保持不变)
-        # ==========================
-        print("3. 开始绘制...")
-        ax = plt.gca()
-        
-        SIZE_BG = 10        # 背景节点大小
-        SIZE_COVERT = 25    # 隐蔽节点大小
-        
-        # 背景节点
-        nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
-                            node_color='#C0C0C0', node_size=SIZE_BG, 
-                            alpha=0.6, linewidths=0, ax=ax)
-        
-        # 背景边
-        bg_edges = [(u, v) for u, v in self.graph.edges() if u not in covert_node_set]
-        nx.draw_networkx_edges(self.graph, pos, edgelist=bg_edges, 
-                            edge_color='#C0C0C0', arrows=False, 
-                            width=0.5, alpha=0.4, ax=ax)
-
-        # 隐蔽连线 (直线)
-        covert_edges = [(u, v) for u, v in self.graph.edges() if u in covert_node_set and v in covert_node_set]
-        nx.draw_networkx_edges(self.graph, pos, edgelist=covert_edges, 
-                            edge_color='#FF4500', 
-                            node_size=SIZE_COVERT, 
-                            arrowstyle='-|>', arrowsize=8, 
-                            width=1.0, alpha=1.0, ax=ax)
-
-        # 隐蔽地址 (蓝色圆点)
-        nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_addrs_list, 
-                            node_color='#1E90FF', node_shape='o', 
-                            node_size=SIZE_COVERT, 
-                            alpha=1.0, linewidths=0.5, edgecolors='white', 
-                            ax=ax)
-
-        # 隐蔽交易 (红色三角)
-        nx.draw_networkx_nodes(self.graph, pos, nodelist=covert_txs_list, 
-                            node_color='#D62728', node_shape='^', 
                             node_size=SIZE_COVERT, 
                             alpha=1.0, linewidths=0.5, edgecolors='black', 
                             ax=ax)
 
         # ==========================
-        # 6. 保存为 PDF
+        # 5. 图例与保存
         # ==========================
         legend_elements = [
             mpatches.Patch(color='#D62728', label='隐蔽交易 (Tx)'),
             mpatches.Patch(color='#1E90FF', label='隐蔽地址 (Addr)'),
-            mpatches.Patch(color='#C0C0C0', label='背景交易'),
+            mpatches.Patch(color='#C0C0C0', label='正常交易图'),
         ]
-        plt.legend(handles=legend_elements, loc='upper right', fontsize=10)
-        plt.title(f"比特币混合交易图谱 (VGAE原地分层)", fontsize=14)
+        
+        plt.legend(handles=legend_elements, loc='upper right', fontsize=10, framealpha=0.9)
+        plt.title(f"比特币混合交易图谱", fontsize=14)
         plt.axis('off')
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"visualize_VGAE_covert_{timestamp}.pdf"
-        plt.savefig(filename, format="pdf", bbox_inches='tight', dpi=300)
+        filename = f"bitcoin_vis_clear_bg_{timestamp}.pdf"
+        plt.savefig(filename, format="pdf", bbox_inches="tight", dpi=300)
         print(f"绘图完成，已保存至: {filename}")
         plt.show()
-        
 
     def visualize_chain_covert_1in2out(self, covert_tx_ids=None):
         """

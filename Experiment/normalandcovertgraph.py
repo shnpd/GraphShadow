@@ -38,7 +38,7 @@ def build_mixed_graph_and_visualize(normal_transaction, covert_transaction):
     # ------------------------------------------------
     # 调用改进后的 visualize_covert 方法，传入隐蔽交易 ID 集合
     try:
-        btg_mixed.visualize_blockwhisper_covert(covert_tx_ids=covert_tx_ids)
+        btg_mixed.visualize_VGAE_covert(covert_tx_ids=covert_tx_ids)
     except AttributeError:
         print("❌ 错误: 你的 BitcoinTransactionGraph 类似乎没有更新 visualize_covert 方法。")
         print("请确保 visualize_covert 方法支持 `covert_tx_ids` 参数 (参考上一个问题的回答)。")
@@ -67,6 +67,7 @@ if __name__ == "__main__":
     # covert_tx = generate_chain_transactions(n=6, rounds=8)
     # covert_tx = load_transactions_from_file("experiment/covert_transactions.json")
     covert_tx = load_transactions_from_file("CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
+    covert_tx = load_transactions_from_file("CompareMethod/GBCTD/GBCTD_transactions.json")
 
     build_mixed_graph_and_visualize(
         normal_transaction = normal_tx,

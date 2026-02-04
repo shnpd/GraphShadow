@@ -1,82 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 import numpy as np
 import random
 import json
 import os
-import time
-import networkx as nx
-import matplotlib.pyplot as plt
-from collections import defaultdict
-import secrets  # Used for generating random hashes
+import secrets
 import math
-# ==========================================
-# 1. Data Loading & Graph Construction (Unchanged)
-# ==========================================
-class BlockDataLoader:
-    def __init__(self, start_block, end_block):
-        self.start_block = start_block
-        self.end_block = end_block
-        self.address_map = {} 
-        self.edges = set()
-        self.node_count = 0
-
-    def load_data(self):
-        def load_transactions_from_file(file_path):
-            if not os.path.exists(file_path): return []
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except: return []
-
-        all_transactions = []
-        print(f"[*] Loading data from block {self.start_block} to {self.end_block}...")
-        for i in range(self.start_block, self.end_block + 1):
-            filename = f"dataset/transactions_block_{i}.json"
-            txs = load_transactions_from_file(filename)
-            if txs:
-                all_transactions.extend(random.sample(txs, min(len(txs), 200)))
-        return all_transactions
-
-    def build_graph(self, transactions):
-        print("[*] Building transaction graph (Sparse Mode)...")
-        self.address_map = {}
-        self.edges = set()
-        for tx in transactions:
-            inputs = tx.get('input_addrs', [])
-            outputs = tx.get('output_addrs', [])
-            for in_addr in inputs:
-                if in_addr not in self.address_map: self.address_map[in_addr] = len(self.address_map)
-                for out_addr in outputs:
-                    if out_addr not in self.address_map: self.address_map[out_addr] = len(self.address_map)
-                    u, v = self.address_map[in_addr], self.address_map[out_addr]
-                    if u != v: self.edges.add((u, v))
-        
-        self.node_count = len(self.address_map)
-        if self.node_count == 0: raise ValueError("Error: No nodes in the graph.")
-
-        pos_edge_index = torch.tensor(list(self.edges), dtype=torch.long).t()
-        indices = pos_edge_index
-        values = torch.ones(indices.shape[1])
-        self_loop_index = torch.arange(0, self.node_count, dtype=torch.long).unsqueeze(0).repeat(2, 1)
-        edge_index_hat = torch.cat([indices, self_loop_index], dim=1)
-        edge_values_hat = torch.cat([values, torch.ones(self.node_count)])
-        
-        deg = torch.zeros(self.node_count)
-        deg = deg.scatter_add_(0, edge_index_hat[0], edge_values_hat)
-        deg_inv_sqrt = deg.pow(-0.5)
-        deg_inv_sqrt[deg_inv_sqrt == float('inf')] = 0
-        
-        row, col = edge_index_hat
-        norm_values = deg_inv_sqrt[row] * edge_values_hat * deg_inv_sqrt[col]
-        norm_adj = torch.sparse_coo_tensor(edge_index_hat, norm_values, (self.node_count, self.node_count))
-        
-        return norm_adj, pos_edge_index
+from collections import defaultdict
 
 # ==========================================
-# 2. VGAE Model (Unchanged)
+# 1. 模型定义 (保持不变)
 # ==========================================
 class GCNLayer(nn.Module):
     def __init__(self, in_feat, out_feat):
@@ -107,185 +41,232 @@ class VGAE(nn.Module):
         return z, mu, logstd
 
 # ==========================================
-# 3. Loss Function (Unchanged)
-# ==========================================
-def negative_sampling(pos_edge_index, num_nodes):
-    return torch.randint(0, num_nodes, (2, pos_edge_index.shape[1]), dtype=torch.long)
-
-def get_link_prediction_loss(z, pos_edge_index, neg_edge_index, mu, logstd, num_nodes):
-    pos_score = (z[pos_edge_index[0]] * z[pos_edge_index[1]]).sum(dim=1)
-    neg_score = (z[neg_edge_index[0]] * z[neg_edge_index[1]]).sum(dim=1)
-    scores = torch.cat([pos_score, neg_score])
-    labels = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)])
-    recon_loss = F.binary_cross_entropy_with_logits(scores, labels)
-    kl = -0.5 / num_nodes * torch.mean(torch.sum(1 + 2 * logstd - mu.pow(2) - logstd.exp().pow(2), 1))
-    return recon_loss + kl
-
-# ==========================================
-# 4. Covert Transaction Construction (Core Logic)
+# 2. 论文核心算法实现: Graph Reconstruction
 # ==========================================
 class CovertTransactionConstructor:
     def __init__(self, model):
         self.model = model
 
-    def run_algorithm_1(self, records, target_tx_count=2, max_outputs_per_tx=3):
-        attempts = 0
-        max_attempts = 2000
+    def generate_topology(self, num_nodes, target_edge_count):
+        """
+        使用 VGAE 生成全局拓扑结构 (Adjacency Matrix)
+        对应论文 Section IV.A/B: 使用生成模型学习并生成图结构
+        """
+        # 构造随机输入特征 (模拟论文中提到的 Random Matrix)
+        features = torch.randn(num_nodes, self.model.input_dim)
+        # 初始邻接矩阵 (可以是单位阵或全零，这里用单位阵作为基底)
+        adj_input = torch.eye(num_nodes)
         
-        while len(records) > target_tx_count and attempts < max_attempts:
-            if len(records) < 2: break
+        self.model.eval()
+        with torch.no_grad():
+            z, _, _ = self.model(features, adj_input)
+            # 重构邻接矩阵 A* = sigmoid(Z * Z^T)
+            adj_probs = torch.sigmoid(torch.matmul(z, z.t())).numpy()
+        
+        # 移除对角线 (无自环)
+        np.fill_diagonal(adj_probs, 0)
+        
+        # 为了确保生成足够的边以承载 input，我们需要选取概率最高的 Top-K 条边
+        # K = target_edge_count
+        flat_probs = adj_probs.flatten()
+        # 获取第 K 大的概率值作为阈值
+        if target_edge_count >= len(flat_probs):
+            threshold = 0.0
+        else:
+            # 使用 partition 快速找到第 K 大的元素
+            partition_idx = len(flat_probs) - target_edge_count
+            threshold = np.partition(flat_probs, partition_idx)[partition_idx]
+        
+        # 生成二值化邻接矩阵
+        generated_adj = (adj_probs >= threshold).astype(int)
+        
+        # 获取边列表 (source, target)
+        rows, cols = np.nonzero(generated_adj)
+        edges = list(zip(rows, cols))
+        
+        # 如果边数过多（因为阈值可能有重复值），截断到目标数量
+        if len(edges) > target_edge_count:
+            edges = edges[:target_edge_count]
             
-            idx_a, idx_b = random.sample(range(len(records)), 2)
-            tx_a, tx_b = records[idx_a], records[idx_b]
+        print(f"[*] VGAE Topology Generated: {num_nodes} Nodes, {len(edges)} Edges (Units)")
+        return edges
+
+    def algorithm_1_reconstruct_records(self, edge_units, node_labels, target_tx_count):
+        """
+        实现论文 Algorithm 1: Reconstruct Records From a Graph
+        
+        Require: 
+            S: set of transaction record units (edges)
+            R: target number of transactions (target_tx_count)
+        Ensure:
+            S: set of reconstructed transaction records
+        """
+        # 初始化 S: 将每一条边转换为一个独立的交易记录单元
+        # Transaction Record Unit: {inputs: [u], outputs: [v]}
+        S = []
+        for u_idx, v_idx in edge_units:
+            # 映射索引到真实的地址字符串
+            u_addr = node_labels[u_idx]
+            v_addr = node_labels[v_idx]
+            S.append({
+                "inputs": {u_addr},   # 使用 set 方便集合运算
+                "outputs": {v_addr}
+            })
+        
+        current_count = len(S)
+        print(f"[*] Start merging... Initial Units: {current_count}, Target: {target_tx_count}")
+        
+        max_failures = 1000  # 防止死循环的保护机制
+        failures = 0
+        
+        # while |S| > R do
+        while len(S) > target_tx_count:
+            if failures > max_failures:
+                print(f"[!] Warning: Max failures reached. Stopped at {len(S)} transactions.")
+                break
+                
+            # Select two records A and B from S randomly
+            idx_a, idx_b = random.sample(range(len(S)), 2)
+            tx_a = S[idx_a]
+            tx_b = S[idx_b]
             
-            # Conflict check
-            inputs_a_addrs = {item[0] for item in tx_a['inputs']}
-            inputs_b_addrs = {item[0] for item in tx_b['inputs']}
+            # Constraint Check (论文原文逻辑):
+            # if A[In] ∩ B[Out] == Ø AND B[In] ∩ A[Out] == Ø then
+            # (确保地址不会在同一笔交易中既是输入又是输出，即资金回流)
+            cond1 = tx_a['inputs'].isdisjoint(tx_b['outputs'])
+            cond2 = tx_b['inputs'].isdisjoint(tx_a['outputs'])
             
-            cond_conflict = inputs_a_addrs.isdisjoint(tx_b['outputs']) and \
-                            inputs_b_addrs.isdisjoint(tx_a['outputs'])
-            
-            potential_outputs = tx_a['outputs'].union(tx_b['outputs'])
-            # STRICT constraint: max outputs per merged tx
-            cond_size = len(potential_outputs) <= max_outputs_per_tx
-            
-            if cond_conflict and cond_size:
+            if cond1 and cond2:
+                # Create C: Merge Inputs and Outputs
+                new_inputs = tx_a['inputs'].union(tx_b['inputs'])
+                new_outputs = tx_a['outputs'].union(tx_b['outputs'])
+                
+                # (可选：增加一个为了美观的限制，防止生成几百个输入的大交易)
+                if len(new_inputs) > 5 or len(new_outputs) > 5:
+                    failures += 1
+                    continue
+
                 new_tx = {
-                    "inputs": tx_a['inputs'] + tx_b['inputs'], 
-                    "outputs": potential_outputs
+                    "inputs": new_inputs,
+                    "outputs": new_outputs
                 }
-                for idx in sorted([idx_a, idx_b], reverse=True):
-                    records.pop(idx)
-                records.append(new_tx)
-                attempts = 0
+                
+                # S = (S - A - B) U C
+                # 由于是 list，我们移除索引较大的，再移除索引较小的，然后添加
+                # 这样不会影响索引顺序
+                if idx_a > idx_b:
+                    S.pop(idx_a)
+                    S.pop(idx_b)
+                else:
+                    S.pop(idx_b)
+                    S.pop(idx_a)
+                
+                S.append(new_tx)
+                failures = 0 # Reset failures on success
             else:
-                attempts += 1
-        return records
+                failures += 1
+                
+        return S
 
-    def construct_single_round(self, current_inputs, round_id, max_degree):
-            num_utxos = len(current_inputs)
-            
-            # [优化1] 限制新地址池的大小
-            num_new_outputs = max(2, int(num_utxos * 1.2)) 
-            
-            total_nodes = num_utxos + num_new_outputs
-            new_outputs = [f"Rec_R{round_id}_{i:02d}" for i in range(num_new_outputs)]
-            
-            # ... (中间的 图生成、智能映射、剪枝 代码完全保持不变) ...
-            # ... 从 "1. 生成拓扑" 到 "4. 生成初始记录" 的代码都不用动 ...
-            
-            # 1. 生成拓扑
-            features = torch.randn(total_nodes, self.model.input_dim)
-            adj_input = torch.eye(total_nodes)
-            self.model.eval()
-            with torch.no_grad():
-                z, _, _ = self.model(features, adj_input)
-                adj_probs = torch.sigmoid(torch.matmul(z, z.t())).numpy()
-            
-            generated_adj = (adj_probs > 0.55).astype(float)
-            np.fill_diagonal(generated_adj, 0)
-            
-            # 2. 智能映射
-            out_degrees = np.sum(generated_adj, axis=1)
-            sorted_indices = np.argsort(out_degrees)[::-1]
-            sender_node_indices = sorted_indices[:num_utxos]
-            
-            node_map = {} 
-            assigned_nodes = set()
-            
-            for i, node_idx in enumerate(sender_node_indices):
-                addr = current_inputs[i]
-                unique_id = (addr, f"R{round_id}_{i}") 
-                node_map[node_idx] = {"type": "input", "val": unique_id}
-                assigned_nodes.add(node_idx)
-                
-            rec_idx = 0
-            for i in range(total_nodes):
-                if i not in assigned_nodes:
-                    node_map[i] = {"type": "output", "val": new_outputs[rec_idx]}
-                    rec_idx += 1
-
-            # 3. 剪枝与转换
-            temp_connections = defaultdict(list)
-            rows, cols = np.nonzero(generated_adj)
-            
-            for r, c in zip(rows, cols):
-                sender_info = node_map[r]
-                receiver_info = node_map[c]
-                if sender_info["type"] == "input" and receiver_info["type"] == "output":
-                    temp_connections[r].append(receiver_info["val"])
-            
-            # 兜底
-            for node_id, info in node_map.items():
-                if info["type"] == "input":
-                    if node_id not in temp_connections or len(temp_connections[node_id]) == 0:
-                        temp_connections[node_id].append(random.choice(new_outputs))
-
-            # 4. 生成初始记录
-            initial_records = []
-            for node_id, receivers in temp_connections.items():
-                # [关键修改2] 更加倾向于 1-out
-                # 将 1-out 的概率提升到 90%。
-                # 只有初始是 1-out，两个合并起来才容易是 2-out (必然满足 <=3)
-                limit = 1 if random.random() < 0.82 else 2
-                
-                if not receivers: receivers = [random.choice(new_outputs)]
-                
-                # 优先选择已经被选过的 output (热点机制)，增加重叠率
-                # 这是一个简单的小技巧：如果列表里有多个，只取第一个（通常是权重最高的）
-                selected_receivers = receivers[:limit]
-                
-                utxo_tuple = node_map[node_id]["val"] 
-                initial_records.append({
-                    "inputs": [utxo_tuple], 
-                    "outputs": set(selected_receivers)
-                })
-
-            # 5. 平衡合并策略
-            target_tx = max(1, int(num_utxos * 0.5)) # 目标是两两合并
-            
-            # [关键修改3] 稍微放宽单笔交易输出上限到 4
-            # 允许 2-in-4 (最坏情况) 发生，防止合并被完全卡死
-            final_txs = self.run_algorithm_1(initial_records, 
-                                        target_tx_count=target_tx, 
-                                        max_outputs_per_tx=4) 
-            
-            next_round_inputs = []
-            for tx in final_txs:
-                next_round_inputs.extend(list(tx['outputs']))
-                
-            return final_txs, next_round_inputs
-    def construct_multi_round_chain(self, initial_inputs, target_total_inputs):
-        """ Multi-round construction """
-        print("\n" + "="*50)
-        print(f">>> Starting multi-round covert chain construction (Target: Consume {target_total_inputs} UTXOs)")
-        print("="*50)
+    def construct_transactions(self, initial_utxos, total_input_slots_needed):
+        """
+        主流程
+        1. 准备节点池 (Initial UTXOs + Generated Output Addresses)
+        2. 生成图拓扑 (确定谁转给谁)
+        3. 运行算法1进行合并
+        """
+        # 1. 确定节点总数
+        # 我们需要足够的边来消耗 total_input_slots_needed (因为初始每个边消耗1个input slot)
+        # 假设图比较稀疏，节点数 N 大约需要比边数 E 少一些或者相当。
+        # 为了保证有足够的 unique output 地址，我们生成较多的节点。
+        num_inputs = len(initial_utxos)
+        # 预估需要的 Output 节点数。
+        # 如果最终全是 2-in-2-out，则 Input 总数 ≈ Output 总数。
+        # 为了安全起见，生成足够的接收地址池。
+        num_generated_addrs = max(total_input_slots_needed, 50) 
         
-        all_rounds_history = []
-        current_utxos = initial_inputs
-        total_inputs_consumed = 0
-        round_count = 1
+        node_labels = initial_utxos.copy()
+        for i in range(num_generated_addrs):
+            node_labels.append(f"Rec_Addr_{i}")
+            
+        total_nodes = len(node_labels)
         
-        while total_inputs_consumed < target_total_inputs:
-            if not current_utxos: break
+        # 2. 生成拓扑 (Edges)
+        # 我们需要的边数 = 需要消耗的 Input 数量 (因为最开始每个 Input 对应一条边)
+        # 注意：这里我们强制保留所有 initial_utxos 作为源节点的边。
+        # 但 VGAE 是随机生成的，可能 initial_utxos 没有出边。
+        # 策略：生成大量边，然后筛选出包含我们需要的。
+        # 或者：简单地要求生成的边数为 target_total_inputs
+        
+        raw_edges = self.generate_topology(total_nodes, target_edge_count=total_input_slots_needed)
+        
+        # 3. 强制修正 (Ensure Initial UTXOs are used)
+        # 论文方法是基于“现有图”重构。这里我们是“构造图”。
+        # 我们需要确保 initial_utxos 在这些边中充当了 Source (u) 的角色。
+        # 如果 VGAE 生成的边没有覆盖某些 initial_utxos，我们需要手动调整或添加。
+        
+        # 建立当前 Source 的集合
+        current_sources = set([edge[0] for edge in raw_edges])
+        
+        # 找到前 len(initial_utxos) 个节点的索引
+        initial_indices = list(range(len(initial_utxos)))
+        
+        final_edges = []
+        used_edge_slots = 0
+        
+        # A. 优先保留 VGAE 生成的、且 Source 是初始地址的边 (保留真实分布特征)
+        for u, v in raw_edges:
+            if u in initial_indices:
+                final_edges.append((u, v))
+                used_edge_slots += 1
+        
+        # B. 补全未使用的初始地址 (如果 VGAE 没生成，强行连一条到随机 Output)
+        for idx in initial_indices:
+            # 检查该地址是否已经在 final_edges 中作为 Source 出现
+            is_covered = False
+            for u, v in final_edges:
+                if u == idx:
+                    is_covered = True
+                    break
+            
+            if not is_covered:
+                # 随机找一个 Output 节点 (索引 >= len(initial_utxos))
+                target = random.randint(len(initial_utxos), total_nodes - 1)
+                final_edges.append((idx, target))
+                used_edge_slots += 1
                 
-            print(f"[*] Round {round_count}: Processing {len(current_utxos)} inputs...")
-            # max_degree=2 encourages 1-input-2-output base transactions
-            txs, next_utxos = self.construct_single_round(current_utxos, round_count, max_degree=2)
-            
-            actual_consumed = sum([len(tx['inputs']) for tx in txs])
-            
-            all_rounds_history.extend(txs) 
-            
-            total_inputs_consumed += actual_consumed
-            current_utxos = next_utxos
-            round_count += 1
-            
-                
-        return all_rounds_history
+        # C. 如果还需要更多 Input (达到 target_total_inputs)，从剩余的 VGAE 边中填充
+        # (这代表中间节点的流转，即 A->B->C 中的 B->C)
+        if used_edge_slots < total_input_slots_needed:
+            for u, v in raw_edges:
+                if used_edge_slots >= total_input_slots_needed:
+                    break
+                # 避免重复添加
+                if (u, v) not in final_edges:
+                    final_edges.append((u, v))
+                    used_edge_slots += 1
+                    
+        print(f"[*] Final Edges Prepared: {len(final_edges)} (Ensured Initial UTXOs coverage)")
 
+        # 4. 执行算法 1 (重构/合并)
+        # 设定目标交易数 R。
+        # 如果我们希望主要是 2-in-2-out，那么 R ≈ Total_Inputs / 2
+        # 如果希望 1-in-2-out (Input=1, Output=2)，那么 R ≈ Total_Inputs
+        # 论文中通常通过合并来混淆。这里设定一个混合目标，比如 60% 的输入数量
+        target_R = int(len(final_edges) * 0.6) 
+        
+        reconstructed_txs = self.algorithm_1_reconstruct_records(
+            final_edges, 
+            node_labels, 
+            target_tx_count=target_R
+        )
+        
+        return reconstructed_txs
 
-if __name__ == "__main__":
+# ==========================================
+# 5. Main Execution
+# ==========================================
+def main():
     TRAIN_MODE = False  
     MODEL_PATH = "CompareMethod/GBCTD/vgae_model_checkpoint.pth"
     
@@ -303,16 +284,20 @@ if __name__ == "__main__":
 
     if model is None: exit(1)
 
+    # 构造初始地址池 (1Addr_1 ... 1Addr_16)
     initial_utxos = [f"1Addr_{i}" for i in range(1, 17)]
+    
     constructor = CovertTransactionConstructor(model)
-    # 传输消息大小
+    
+    # 计算目标输入总数 (模拟消息大小)
     msg_size_B = 4096
-    target_total_inputs = math.ceil((msg_size_B * 8) / 128)
-    print(f"需要构造{target_total_inputs}个输入")
-    # Execute construction
-    flat_tx_list = constructor.construct_multi_round_chain(
-        initial_inputs=initial_utxos, 
-        target_total_inputs=target_total_inputs
+    target_total_inputs = math.ceil(msg_size_B * 8 / 30) 
+    print(f"Target Total Inputs needed: {target_total_inputs}")
+    
+    # 执行构造
+    tx_list = constructor.construct_transactions(
+        initial_utxos=initial_utxos, 
+        total_input_slots_needed=target_total_inputs
     )
     
     # ------------------ JSON Export ------------------
@@ -322,18 +307,13 @@ if __name__ == "__main__":
     
     formatted_txs = []
     
-    for tx in flat_tx_list:
-        # 1. Generate random hash
+    for tx in tx_list:
         tx_hash = secrets.token_hex(32)
         
-        # 2. Clean Inputs
-        raw_inputs = tx['inputs']
-        clean_input_addrs = [item[0] for item in raw_inputs]
-        
-        # 3. Clean Outputs
+        # 将 set 转回 list 以便 JSON 序列化
+        clean_input_addrs = list(tx['inputs'])
         clean_output_addrs = list(tx['outputs'])
         
-        # 4. Construct dictionary
         tx_dict = {
             "hash": tx_hash,
             "input_addrs": clean_input_addrs,
@@ -342,12 +322,21 @@ if __name__ == "__main__":
         
         formatted_txs.append(tx_dict)
         
-        # Print preview
-        print(f"Hash: {tx_hash[:8]}... | In: {clean_input_addrs} -> Out: {clean_output_addrs}")
+        # 简单打印预览前几个
+        if len(formatted_txs) <= 5:
+            print(f"Hash: {tx_hash[:8]}... | In({len(clean_input_addrs)}): {clean_input_addrs} -> Out({len(clean_output_addrs)})")
 
-    # Save file
     output_filename = "CompareMethod/GBCTD/GBCTD_transactions.json"
+    # 确保目录存在
+    os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+    
     with open(output_filename, 'w', encoding='utf-8') as f:
         json.dump(formatted_txs, f, indent=4)
         
     print(f"\n[✓] Successfully saved {len(formatted_txs)} transactions to {output_filename}")
+    
+    # [修改点] 将 tx['inputs'] 改为 tx['input_addrs']
+    print(f"[✓] Total Inputs Used: {sum(len(tx['input_addrs']) for tx in formatted_txs)}")
+
+if __name__ == "__main__":
+    main()
