@@ -11,7 +11,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import secrets  # Used for generating random hashes
-
+import math
 # ==========================================
 # 1. Data Loading & Graph Construction (Unchanged)
 # ==========================================
@@ -166,9 +166,7 @@ class CovertTransactionConstructor:
             num_utxos = len(current_inputs)
             
             # [优化1] 限制新地址池的大小
-            # 之前是扩容，现在改为收缩 (0.7)，迫使不同的交易指向同一个接收地址
-            # 这有助于形成 "2-in-1-out" 的结构
-            num_new_outputs = max(2, int(num_utxos * 0.7)) 
+            num_new_outputs = max(2, int(num_utxos * 1.2)) 
             
             total_nodes = num_utxos + num_new_outputs
             new_outputs = [f"Rec_R{round_id}_{i:02d}" for i in range(num_new_outputs)]
@@ -226,11 +224,16 @@ class CovertTransactionConstructor:
             # 4. 生成初始记录
             initial_records = []
             for node_id, receivers in temp_connections.items():
-                # [优化2] 这里接收传入的 max_degree，稍后在main中我们会把它设为 2
-                if len(receivers) > max_degree:
-                    selected_receivers = random.sample(receivers, max_degree)
-                else:
-                    selected_receivers = receivers
+                # [关键修改2] 更加倾向于 1-out
+                # 将 1-out 的概率提升到 90%。
+                # 只有初始是 1-out，两个合并起来才容易是 2-out (必然满足 <=3)
+                limit = 1 if random.random() < 0.82 else 2
+                
+                if not receivers: receivers = [random.choice(new_outputs)]
+                
+                # 优先选择已经被选过的 output (热点机制)，增加重叠率
+                # 这是一个简单的小技巧：如果列表里有多个，只取第一个（通常是权重最高的）
+                selected_receivers = receivers[:limit]
                 
                 utxo_tuple = node_map[node_id]["val"] 
                 initial_records.append({
@@ -238,28 +241,21 @@ class CovertTransactionConstructor:
                     "outputs": set(selected_receivers)
                 })
 
-            # ---------------------------------------------------------
-            # [核心修改] 5. 平衡合并策略
-            # ---------------------------------------------------------
-            # 目标：让下一轮的 UTXO 数量与本轮大致持平
-            # 计算公式：Next_UTXOs = Target_Tx * Avg_Outputs
-            # 我们希望 Next_UTXOs ≈ num_utxos
-            # 如果 Avg_Outputs ≈ 1.8 (因为 max_degree=2)，那么 Target_Tx 应该约为 num_utxos / 1.8 ≈ 0.55
+            # 5. 平衡合并策略
+            target_tx = max(1, int(num_utxos * 0.5)) # 目标是两两合并
             
-            target_tx_ratio = 0.6  # 设置为 0.6，表示进行较为积极的合并 (40% 的交易会被合并)
-            target_tx = max(1, int(num_utxos * target_tx_ratio))
-            
-            # max_outputs_per_tx=3 防止合并出巨型交易，保持隐蔽性
+            # [关键修改3] 稍微放宽单笔交易输出上限到 4
+            # 允许 2-in-4 (最坏情况) 发生，防止合并被完全卡死
             final_txs = self.run_algorithm_1(initial_records, 
                                         target_tx_count=target_tx, 
-                                        max_outputs_per_tx=3)
+                                        max_outputs_per_tx=4) 
             
             next_round_inputs = []
             for tx in final_txs:
                 next_round_inputs.extend(list(tx['outputs']))
                 
             return final_txs, next_round_inputs
-    def construct_multi_round_chain(self, initial_inputs, target_total_inputs=64):
+    def construct_multi_round_chain(self, initial_inputs, target_total_inputs):
         """ Multi-round construction """
         print("\n" + "="*50)
         print(f">>> Starting multi-round covert chain construction (Target: Consume {target_total_inputs} UTXOs)")
@@ -285,14 +281,11 @@ class CovertTransactionConstructor:
             current_utxos = next_utxos
             round_count += 1
             
-            if round_count > 20: break
                 
         return all_rounds_history
 
-# ==========================================
-# 5. Main Execution
-# ==========================================
-def main():
+
+if __name__ == "__main__":
     TRAIN_MODE = False  
     MODEL_PATH = "CompareMethod/GBCTD/vgae_model_checkpoint.pth"
     
@@ -303,25 +296,23 @@ def main():
     else:
         if not os.path.exists(MODEL_PATH):
             print(f"Model not found: {MODEL_PATH}")
-            return
+            exit(1)
         checkpoint = torch.load(MODEL_PATH)
         model = VGAE(input_dim=checkpoint.get('input_dim', 32))
         model.load_state_dict(checkpoint['state_dict'])
 
-    if model is None: return
+    if model is None: exit(1)
 
-    # Initial UTXOs
-    initial_utxos = [
-        "1Addr_A", "1Addr_B", "1Addr_C", 
-        "1Addr_D", "1Addr_E", "1Addr_F"
-    ]
-    
+    initial_utxos = [f"1Addr_{i}" for i in range(1, 17)]
     constructor = CovertTransactionConstructor(model)
-    
+    # 传输消息大小
+    msg_size_B = 4096
+    target_total_inputs = math.ceil((msg_size_B * 8) / 128)
+    print(f"需要构造{target_total_inputs}个输入")
     # Execute construction
     flat_tx_list = constructor.construct_multi_round_chain(
         initial_inputs=initial_utxos, 
-        target_total_inputs=64
+        target_total_inputs=target_total_inputs
     )
     
     # ------------------ JSON Export ------------------
@@ -360,6 +351,3 @@ def main():
         json.dump(formatted_txs, f, indent=4)
         
     print(f"\n[✓] Successfully saved {len(formatted_txs)} transactions to {output_filename}")
-
-if __name__ == "__main__":
-    main()

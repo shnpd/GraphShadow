@@ -1,7 +1,7 @@
 
 import json
 from constructtx import utils
-
+import math
 
 def generate_chain_transactions(n, rounds):
     """
@@ -130,6 +130,12 @@ def save_transactions_to_json(transaction_list, filename="my_transactions.json")
 
         
 if __name__ == "__main__":
-    covert_tx = generate_1in2out_chain_transactions(n=6, rounds=11)
+    msg_size_B = 4096
+    
+    init_addr_num = 18
+    
+    rounds = math.ceil((msg_size_B * 8) / (init_addr_num * 128))
+    print(f"初始{init_addr_num}个地址，传输{rounds}轮交易")
+    covert_tx = generate_1in2out_chain_transactions(n=init_addr_num, rounds=rounds)
     save_transactions_to_json(covert_tx, "CompareMethod/DDSAC/DDSAC_transactions.json")
 

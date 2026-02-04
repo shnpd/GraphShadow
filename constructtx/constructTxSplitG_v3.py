@@ -1,3 +1,4 @@
+import json
 import numpy as np
 from matplotlib import pyplot as plt
 import sys
@@ -194,7 +195,7 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
 
     # 3. Best-of-N 构造循环
     banned_indices_for_this_tx = set()
-    outputs = [utils.generate_random_address() for _ in range(m)]
+    output_addrs = [utils.generate_random_address() for _ in range(m)]
     current_diameter = -1
     CANDIDATE_ATTEMPTS = 5
 
@@ -206,10 +207,10 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
             temp_indices = select_inputs(n, banned_indices_for_this_tx)
             if len(temp_indices) < n: continue
 
-            temp_inputs = [central_states[i]['address'] for i in temp_indices]
+            temp_input_addrs = [central_states[i]['address'] for i in temp_indices]
             
             # 试探
-            graph.add_transaction(tx_id, temp_inputs, outputs)
+            graph.add_transaction(tx_id, temp_input_addrs, output_addrs)
             temp_d = graph.calculate_diameter()
             graph.remove_transaction(tx_id)
             
@@ -224,8 +225,8 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
             print(f'直径超标或选不出地址，等待新区块{start_height+windows}！')
             return 'Exceed'
 
-        inputs = [central_states[i]['address'] for i in selected_central_indices]
-        graph.add_transaction(tx_id, inputs, outputs)
+        input_addrs = [central_states[i]['address'] for i in selected_central_indices]
+        graph.add_transaction(tx_id, input_addrs, output_addrs)
         current_diameter = graph.calculate_diameter()
         
         now_height = 934217 # TODO: 获取真实高度
@@ -239,10 +240,10 @@ def construct_token_distribute_transaction(tx_sampler, central_states, graph, st
                 central_states[idx]['bal'] -= 1
             
             # 【核心记录】记录生成的通信地址归属
-            for out_addr in outputs:
+            for out_addr in output_addrs:
                 comm_group_map[out_addr] = target_group_id
                 
-            return {'hash': tx_id, 'inputs': inputs, 'outputs': outputs, 'diameter': current_diameter}
+            return {'hash': tx_id, 'input_addrs': input_addrs, 'output_addrs': output_addrs, 'diameter': current_diameter}
         else:
             graph.remove_transaction(tx_id)
             banned_indices_for_this_tx.update(selected_central_indices)
@@ -273,7 +274,7 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
     candidate_indices = [i for i, addr in enumerate(comm_addresses) if comm_group_map.get(addr) == target_group_id]
     n = min(n, len(candidate_indices))
     selected_comm_indices = np.random.choice(candidate_indices, n, replace=False)
-    inputs = [comm_addresses[i] for i in selected_comm_indices]
+    input_addrs = [comm_addresses[i] for i in selected_comm_indices]
 
     # 3. 定义输出选择函数 (严格回流到本组中心地址)
     def select_outputs(count, banned_indices):
@@ -312,9 +313,9 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
             temp_indices = select_outputs(m, banned_central_indices)
             if len(temp_indices) < m: continue
             
-            temp_outputs = [central_states[i]['address'] for i in temp_indices]
+            temp_output_addrs = [central_states[i]['address'] for i in temp_indices]
             
-            graph.add_transaction(tx_id, inputs, temp_outputs)
+            graph.add_transaction(tx_id, input_addrs, temp_output_addrs)
             temp_d = graph.calculate_diameter()
             graph.remove_transaction(tx_id)
             
@@ -328,9 +329,9 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
             print(f'直径超标或无可选地址，等待新区块{start_height+windows}！')
             return 'Exceed'
             
-        outputs = [central_states[i]['address'] for i in selected_central_indices]
+        output_addrs = [central_states[i]['address'] for i in selected_central_indices]
         
-        graph.add_transaction(tx_id, inputs, outputs)
+        graph.add_transaction(tx_id, input_addrs, output_addrs)
         current_diameter = graph.calculate_diameter()
         
         now_height = 934217 
@@ -350,7 +351,7 @@ def construct_message_communication_transaction(tx_sampler, comm_addresses, cent
                     del comm_group_map[addr_to_del]
                 del comm_addresses[idx]
                 
-            return {'hash': tx_id, 'inputs': inputs, 'outputs': outputs, 'diameter': current_diameter}
+            return {'hash': tx_id, 'input_addrs': input_addrs, 'output_addrs': output_addrs, 'diameter': current_diameter}
         else:
             graph.remove_transaction(tx_id)
             banned_central_indices.update(selected_central_indices)
@@ -475,8 +476,8 @@ def generate_covert_transactions(message_size_B, start_height=934217-5, num_grou
                 raise RuntimeError(f"Round {round_idx+1} Phase 1 直径超标，生成失败。")
             else:
                 phase1_tx_count += 1
-                round_comm_addresses.extend(tx['outputs'])
-                N_utxo -= len(tx['outputs'])
+                round_comm_addresses.extend(tx['output_addrs'])
+                N_utxo -= len(tx['output_addrs'])
                 all_transactions.append(tx) # 记录交易
 
         print(f"  Phase 1 完成: 生成 {phase1_tx_count} 笔交易")
@@ -523,23 +524,34 @@ def generate_covert_transactions(message_size_B, start_height=934217-5, num_grou
 
 
 if __name__ == "__main__":
-    try:
-        # 假设我们要传输 1KB 的数据
-        covert_tx_list, tx_graph = generate_covert_transactions(1024)
+    # try:
+    #     # 假设我们要传输 1KB 的数据
+    #     covert_tx_list, tx_graph = generate_covert_transactions(1024)
         
-         # 2. 获取交易列表用于后续分析或写入文件
-        print(f"一共生成了 {len(covert_tx_list)} 笔隐蔽交易")
+    #      # 2. 获取交易列表用于后续分析或写入文件
+    #     print(f"一共生成了 {len(covert_tx_list)} 笔隐蔽交易")
 
-        # 3. 获取交易 ID 列表，用于在可视化中高亮
-        covert_tx_ids = [tx['hash'] for tx in covert_tx_list]
+    #     # 3. 获取交易 ID 列表，用于在可视化中高亮
+    #     covert_tx_ids = [tx['hash'] for tx in covert_tx_list]
 
-        # 4. 使用之前定义的 visualize 方法绘制
-        # (假设你已经把 visualize 定义在 btg 对象里了)
-        tx_graph.visualize(covert_tx_ids=covert_tx_ids)
-    except Exception as e:
-        print(f"程序执行出错: {e}")
-    # init_parameter()
-
+    #     # 4. 使用之前定义的 visualize 方法绘制
+    #     # (假设你已经把 visualize 定义在 btg 对象里了)
+    #     tx_graph.visualize(covert_tx_ids=covert_tx_ids)
+    # except Exception as e:
+    #     print(f"程序执行出错: {e}")
+    # # init_parameter()
+    
+    # 获取隐蔽交易
+    covert_tx, _ = generate_covert_transactions(
+        message_size_B=4096, 
+        num_groups=18 # 使用之前的分组策略
+    )
+     # Save file
+    output_filename = "constructtx/GraphShadow_transactions.json"
+    with open(output_filename, 'w', encoding='utf-8') as f:
+        json.dump(covert_tx, f, indent=4)
+        
+    print(f"\n[✓] Successfully saved {len(covert_tx)} transactions to {output_filename}")
     # round_idx = 0
     # while N_utxo > 0:
     #     print(f"\n{'=' * 20} 开始第 {round_idx + 1} 轮模拟 {'=' * 20}")
@@ -565,8 +577,8 @@ if __name__ == "__main__":
     #             sys.exit()
     #         else:
     #             dist_tx_count += 1
-    #             round_comm_addresses.extend(tx['outputs'])
-    #             N_utxo -= len(tx['outputs'])
+    #             round_comm_addresses.extend(tx['output_addrs'])
+    #             N_utxo -= len(tx['output_addrs'])
 
     #     print(f"Round {round_idx + 1} Phase 1 结束，产生了 {dist_tx_count} 笔交易。")
     #     if dist_tx_count == 0:
