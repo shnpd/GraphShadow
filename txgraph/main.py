@@ -871,9 +871,6 @@ class BitcoinTransactionGraph:
 
         ax = plt.gca()
         
-        SIZE_BG = 10      
-        SIZE_COVERT = 15  
-        
         # Layer 1: 背景
         nx.draw_networkx_nodes(self.graph, pos, nodelist=bg_nodes, 
                             node_color=VIS_CONFIG['COLOR_BG'], 
@@ -916,7 +913,7 @@ class BitcoinTransactionGraph:
         import matplotlib.patches as mpatches # 确保导入
         legend_elements = [
             mpatches.Patch(color='#D62728', label='隐蔽交易'),
-            mpatches.Patch(color='#1E90FF', label='隐蔽地址)'),
+            mpatches.Patch(color='#1E90FF', label='隐蔽地址'),
             mpatches.Patch(color='#C0C0C0', label='正常交易图'),
         ]
         

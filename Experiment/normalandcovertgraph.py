@@ -38,7 +38,7 @@ def build_mixed_graph_and_visualize(normal_transaction, covert_transaction):
     # ------------------------------------------------
     # 调用改进后的 visualize_covert 方法，传入隐蔽交易 ID 集合
     try:
-        btg_mixed.visualize_GraphShadow_covert(covert_tx_ids=covert_tx_ids)
+        btg_mixed.visualize_BlockWhisper_covert(covert_tx_ids=covert_tx_ids)
     except AttributeError as e:
         print(f"❌ 错误: {e}")
     except Exception as e:
@@ -63,10 +63,10 @@ if __name__ == "__main__":
     #     num_groups=5 # 使用之前的分组策略
     # )
 
-    # covert_tx = load_transactions_from_file("CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
+    covert_tx = load_transactions_from_file("CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
     # covert_tx = load_transactions_from_file("CompareMethod/GBCTD/GBCTD_transactions.json")
     # covert_tx = load_transactions_from_file("CompareMethod/DDSAC/DDSAC_transactions.json")
-    covert_tx = load_transactions_from_file("constructtx/GraphShadow_transactions.json")
+    # covert_tx = load_transactions_from_file("constructtx/GraphShadow_transactions.json")
 
     build_mixed_graph_and_visualize(
         normal_transaction = normal_tx,
