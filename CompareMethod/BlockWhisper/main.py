@@ -261,7 +261,7 @@ def save_transactions_to_json(transaction_list, filename="my_transactions.json")
 
 if __name__ == "__main__":
     # 传输消息大小
-    message_size_B = 4096
+    message_size_B = 1024
     
     # 1. 准备地址池
     pool = [f"1Addr_{i:03d}" for i in range(100)] 

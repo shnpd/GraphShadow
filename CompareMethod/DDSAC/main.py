@@ -130,9 +130,10 @@ def save_transactions_to_json(transaction_list, filename="my_transactions.json")
 
         
 if __name__ == "__main__":
-    
     msg_size_B = 4096
+    
     init_addr_num = 18
+    
     rounds = math.ceil((msg_size_B * 8) / (init_addr_num * 128))
     print(f"初始{init_addr_num}个地址，传输{rounds}轮交易")
     # 循环生成100组文件
