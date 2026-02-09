@@ -152,6 +152,84 @@ def plot_directed_diameter_comparison(normal_wrapper, covert_dict, output_dir='e
     print(f"\n[完成] 结果图已保存至: {save_path}")
     plt.show()
 
+def plot_directed_diameter_comparison(covert_dict, output_dir='experiment/'):
+    """
+    绘制有向直径对比柱状图 (仅比较隐蔽交易方案)
+    并将结果保存为 PDF 文件
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    # 准备绘图数据容器
+    labels = []
+    diameters = []
+    colors = []
+    
+    # 定义颜色方案 (红、绿、橙、紫、棕)
+    scheme_colors = ['#D62728', '#2CA02C', '#FF7F0E', '#9467BD', '#8C564B'] 
+    
+    print(">>> 开始计算各隐蔽方案的有向直径...")
+    
+    # 循环处理每个隐蔽方案
+    for i, (label_name, covert_wrapper) in enumerate(covert_dict.items()):
+        # 兼容处理：检查传入的是 Wrapper 还是直接的 NX 对象
+        if hasattr(covert_wrapper, 'graph'):
+            G_covert_nx = covert_wrapper.graph
+        else:
+            G_covert_nx = covert_wrapper
+            
+        print(f"    正在计算: {label_name} ...")
+        
+        # 计算直径 (使用你提供的近似算法)
+        # 注意：请确保 calculate_approx_directed_diameter 函数在上下文可见
+        d_mix = calculate_approx_directed_diameter(G_covert_nx, sample_size=100)
+        print(f"    -> {label_name} Diameter: {d_mix}")
+        
+        labels.append(label_name)
+        diameters.append(d_mix)
+        colors.append(scheme_colors[i % len(scheme_colors)])
+        
+    # === 开始绘图 ===
+    plt.figure(figsize=(10, 6))
+    
+    x = np.arange(len(labels))
+    width = 0.5
+    
+    # 绘制柱子
+    bars = plt.bar(x, diameters, width, color=colors, alpha=0.85, edgecolor='black', zorder=3)
+    
+    # 设置 Y 轴范围 (动态调整上限)
+    if diameters:
+        plt.ylim(0, max(diameters) * 1.25)
+    
+    # 标签与标题
+    plt.ylabel('Max Reachable Distance (Hops)', fontsize=14, fontweight='bold')
+    plt.title('Directed Graph Diameter Comparison\n(Covert Schemes Only)', fontsize=16, pad=20)
+    plt.xticks(x, labels, fontsize=11, fontweight='bold')
+    
+    # 网格线
+    plt.grid(axis='y', linestyle='--', alpha=0.4, zorder=0)
+    
+    # 在柱子上标注数值
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height,
+                 f'{int(height)}',
+                 ha='center', va='bottom', 
+                 fontsize=14, fontweight='bold')
+
+    plt.tight_layout()
+    
+    # === 保存结果为 PDF ===
+    save_path = os.path.join(output_dir, "Directed_Diameter_Covert_Only.pdf")
+    
+    # format='pdf' 指定格式
+    # bbox_inches='tight' 裁剪掉多余的白边，防止标签显示不全
+    plt.savefig(save_path, dpi=300, format='pdf', bbox_inches='tight')
+    
+    print(f"\n[完成] 结果图已保存至: {save_path}")
+    plt.show()
+    
 # ==========================================
 # 4. 主程序入口
 # ==========================================
@@ -175,23 +253,19 @@ if __name__ == "__main__":
     G_normal_wrapper = constuct_graph(normal_tx)
 
     print(">>> 正在加载对比方案数据...")
-    try:
-        # 加载各方案数据 (请确保路径正确)
-        GraphShadow_tx = load_transactions_from_file("constructtx/GraphShadow_transactions.json")
-        DDSAC_tx = load_transactions_from_file("CompareMethod/DDSAC/DDSAC_transactions.json")
-        GBCTD_tx = load_transactions_from_file("CompareMethod/GBCTD/GBCTD_transactions.json")
-        BlockWhisper_tx = load_transactions_from_file("CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
+    # 加载各方案数据 (请确保路径正确)
+    GraphShadow_tx = load_transactions_from_file("constructtx/GraphShadow_transactions.json")
+    DDSAC_tx = load_transactions_from_file("CompareMethod/DDSAC/DDSAC_transactions.json")
+    GBCTD_tx = load_transactions_from_file("CompareMethod/GBCTD/GBCTD_transactions.json")
+    BlockWhisper_tx = load_transactions_from_file("CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
 
-        scenarios = {
-            "GraphShadow": constuct_graph(GraphShadow_tx),
-            "DDSAC": constuct_graph(DDSAC_tx),
-            "GBCTD": constuct_graph(GBCTD_tx),
-            "BlockWhisper": constuct_graph(BlockWhisper_tx)
-        }
+    scenarios = {
+        "GraphShadow": constuct_graph(GraphShadow_tx),
+        "DDSAC": constuct_graph(DDSAC_tx),
+        "GBCTD": constuct_graph(GBCTD_tx),
+        "BlockWhisper": constuct_graph(BlockWhisper_tx)
+    }
 
-        # 运行对比
-        plot_directed_diameter_comparison(G_normal_wrapper, scenarios, output_dir='experiment_results')
-        
-    except FileNotFoundError as e:
-        print(f"Error: 找不到数据文件 - {e}")
-        print("请检查 constructtx/ 或 CompareMethod/ 下的文件路径。")
+    # 运行对比
+    plot_directed_diameter_comparison(scenarios, output_dir='experiment/result')
+    

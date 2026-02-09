@@ -273,11 +273,10 @@ if __name__ == "__main__":
 
     # 计算交易数量
     num = math.ceil(message_size_B * 8 / 29)
-    # 3. 生成交易数据 (此时列表里已经是完整的字典对象了)
-    print(f"正在构造{num}个交易...")
-    my_transactions = [generator.construct_transaction() for _ in range(num)]
     
-    # 4. 保存为 JSON
-    save_transactions_to_json(my_transactions, "CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
     
-    plot_transaction_graph(my_transactions)
+    for i in range(1, 101):  # 1到100
+        # 生成文件名
+        filename = f"CompareMethod/BlockWhisper/BlockWhisper_transactions_{i}.json"
+        my_transactions = [generator.construct_transaction() for _ in range(num)]
+        save_transactions_to_json(my_transactions, filename)

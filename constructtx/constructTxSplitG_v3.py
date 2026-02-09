@@ -86,7 +86,6 @@ def init_center_addresses(N_center, N_comm, centrality_sampler, num_groups=8):
     for i in range(len(central_address_degree_list)):
         state = {
             'address': central_address_list[i],
-            'd_cur': 0,
             'd_tgt': central_address_degree_list[i],
             'bal': 0,
             # 【新增】均匀分配组 ID (0, 1, ..., num_groups-1)
@@ -543,8 +542,8 @@ if __name__ == "__main__":
     
     # 获取隐蔽交易
     covert_tx, _ = generate_covert_transactions(
-        message_size_B=1024, 
-        num_groups=6 # 使用之前的分组策略
+        message_size_B=4096, 
+        num_groups=18 # 使用之前的分组策略
     )
      # Save file
     output_filename = "constructtx/GraphShadow_transactions.json"
