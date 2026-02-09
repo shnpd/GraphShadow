@@ -543,8 +543,8 @@ if __name__ == "__main__":
     
     # 获取隐蔽交易
     covert_tx, _ = generate_covert_transactions(
-        message_size_B=4096, 
-        num_groups=18 # 使用之前的分组策略
+        message_size_B=1024, 
+        num_groups=6 # 使用之前的分组策略
     )
      # Save file
     output_filename = "constructtx/GraphShadow_transactions.json"

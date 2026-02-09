@@ -48,7 +48,7 @@ def get_pmf_data(G):
     return x, y
 
 # === 3. 绘图函数 (优化版) ===
-def plot_multi_scenario_pmf_linear(normal_wrapper, covert_dict):
+def plot_address_central_degree(normal_wrapper, covert_dict):
     """
     绘制多组混合图的 PMF 对比 (线性坐标 - 美化版)
     包含：Jitter抖动、高对比度颜色、不同Marker
@@ -80,9 +80,8 @@ def plot_multi_scenario_pmf_linear(normal_wrapper, covert_dict):
     num_scenarios = len(covert_dict)
     
     for i, (label_name, covert_wrapper) in enumerate(covert_dict.items()):
-        G_covert_nx = covert_wrapper.graph
-        G_mixed = merge_graphs(G_normal_nx, G_covert_nx)
-        x_mix, y_mix = get_pmf_data(G_mixed)
+        G_covert = covert_wrapper.graph
+        x_mix, y_mix = get_pmf_data(G_covert)
         
         current_max = max(x_mix) if x_mix else 0
         max_display_degree = max(max_display_degree, current_max)
@@ -283,12 +282,13 @@ if __name__ == "__main__":
     GBCTD_tx = load_transactions_from_file("CompareMethod/GBCTD/GBCTD_transactions.json")
     BlockWhisper_tx = load_transactions_from_file("CompareMethod/BlockWhisper/BlockWhisper_transactions.json")
 
+    normal_graph = constuct_graph(normal_tx)
     scenarios = {
-        "GraphShadow": constuct_graph(GraphShadow_tx),
-        "DDSAC": constuct_graph(DDSAC_tx),
-        "GBCTD": constuct_graph(GBCTD_tx),
-        "BlockWhisper": constuct_graph(BlockWhisper_tx)
+        "GraphShadow": merge_graphs(constuct_graph(GraphShadow_tx), normal_graph),
+        "DDSAC": merge_graphs(constuct_graph(DDSAC_tx), normal_graph),
+        "GBCTD": merge_graphs(constuct_graph(GBCTD_tx), normal_graph),
+        "BlockWhisper": merge_graphs(constuct_graph(BlockWhisper_tx), normal_graph)
     }
 
-    plot_multi_scenario_pmf_linear(constuct_graph(normal_tx), scenarios)
+    plot_address_central_degree(normal_graph, scenarios)
     # evaluate_and_plot_structures(constuct_graph(normal_tx), scenarios, 8, "Experiment/transactionnode")

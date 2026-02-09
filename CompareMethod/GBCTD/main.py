@@ -290,7 +290,7 @@ def main():
     constructor = CovertTransactionConstructor(model)
     
     # 计算目标输入总数 (模拟消息大小)
-    msg_size_B = 4096
+    msg_size_B = 1024
     target_total_inputs = math.ceil(msg_size_B * 8 / 30) 
     print(f"Target Total Inputs needed: {target_total_inputs}")
     
