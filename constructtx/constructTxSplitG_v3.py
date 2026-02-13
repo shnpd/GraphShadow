@@ -541,16 +541,19 @@ if __name__ == "__main__":
     # # init_parameter()
     
     # 获取隐蔽交易
-    covert_tx, _ = generate_covert_transactions(
-        message_size_B=4096, 
-        num_groups=18 # 使用之前的分组策略
-    )
-     # Save file
-    output_filename = "constructtx/GraphShadow_transactions.json"
-    with open(output_filename, 'w', encoding='utf-8') as f:
-        json.dump(covert_tx, f, indent=4)
-        
-    print(f"\n[✓] Successfully saved {len(covert_tx)} transactions to {output_filename}")
+    for i in range(1,11):
+        msg_size_B = i * 1024
+        covert_tx, _ = generate_covert_transactions(
+            message_size_B=msg_size_B, 
+            num_groups=18 # 使用之前的分组策略
+        )
+        # Save file
+        output_filename = f"constructtx/GraphShadow_transactions_{msg_size_B}.json"
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            json.dump(covert_tx, f, indent=4)
+            
+        print(f"\n[✓] Successfully saved {len(covert_tx)} transactions to {output_filename}")
+    
     # round_idx = 0
     # while N_utxo > 0:
     #     print(f"\n{'=' * 20} 开始第 {round_idx + 1} 轮模拟 {'=' * 20}")

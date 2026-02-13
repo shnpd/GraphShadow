@@ -8,6 +8,8 @@ from collections import defaultdict
 import hashlib
 import time
 import math
+
+from constructtx import utils
 # ==========================================
 # 模块 A: 完善后的交易生成器
 # ==========================================
@@ -260,23 +262,31 @@ def save_transactions_to_json(transaction_list, filename="my_transactions.json")
         print(f"✗ 保存失败: {e}")
 
 if __name__ == "__main__":
-    # 传输消息大小
-    message_size_B = 1024
     
     # 1. 准备地址池
-    pool = [f"1Addr_{i:03d}" for i in range(100)] 
-    
+    pool = [utils.generate_random_address() for _ in range(300)]
     # 2. 初始化生成器
-    # 使用你之前拟合的或者示例参数
     generator = BlockWhisperGraph(pool, alpha_out=0.4171, alpha_in=0.3484)
     
+    # 传输消息大小
+    # msg_size_B = 1024
+    
+    # for i in range(1, 11):
+    #     # 计算交易数量
+    #     msg_size_B = i * 1024
+    #     num = math.ceil(msg_size_B * 8 / 29)
+        
+    #     filename = f"CompareMethod/BlockWhisper/BlockWhisper_transactions_{msg_size_B}.json"
+    #     my_transactions = [generator.construct_transaction() for _ in range(num)]
+    #     save_transactions_to_json(my_transactions, filename)
 
-    # 计算交易数量
-    num = math.ceil(message_size_B * 8 / 29)
     
-    
-    for i in range(1, 101):  # 1到100
+
+
+    msg_size_B = 1024
+    num = math.ceil(msg_size_B * 8 / 29)
+    for i in range(1, 1001):
         # 生成文件名
-        filename = f"CompareMethod/BlockWhisper/BlockWhisper_transactions_{i}.json"
+        filename = f"CompareMethod/BlockWhisper/dataset/BlockWhisper_transactions_{i}.json"
         my_transactions = [generator.construct_transaction() for _ in range(num)]
         save_transactions_to_json(my_transactions, filename)

@@ -13,7 +13,6 @@ from constructtx.constructTxSplitG_v3 import generate_covert_transactions
 from txgraph.main import BitcoinTransactionGraph
 import constructtx.utils as utils
 import random
-import normalandcovertgraph
 import copy
 from scipy.spatial.distance import jensenshannon
 
@@ -30,10 +29,8 @@ def merge_graphs(G_base, G_inject):
     合并基准图和注入图。
     注意：此函数现在主要在 main 中调用，用于预处理数据。
     """
-    G_base_nx = G_base.graph
-    G_inject_nx = G_inject.graph
-    G_mixed_nx = copy.deepcopy(G_base_nx)
-    G_mixed_nx = nx.compose(G_mixed_nx, G_inject_nx)
+    G_mixed_nx = copy.deepcopy(G_base)
+    G_mixed_nx = nx.compose(G_mixed_nx, G_inject)
     # 返回的是 NetworkX 对象，如果后续需要 Wrapper，需注意封装，
     # 但根据你的代码逻辑，Scenarios 中存 NetworkX 对象即可，或者存 Wrapper 但 Wrapper.graph 是混合后的
     # 根据 main 中的逻辑：scenarios 存的是 NetworkX 对象
@@ -62,14 +59,18 @@ def get_pmf_data(G):
 
     return x, y
 
-def compare_address_degree(normal_wrapper, mixed_dict, max_x_limit=15, output_dir='experiment/'):
+def compare_address_degree(G_normal_nx, mixed_dict, max_x_limit=15, output_dir='experiment/'):
     """
-    绘制多组混合图的 PMF 对比，计算量化指标 (TVD, JSD)，并保存为 PDF
+    绘制多组混合图的 PMF 对比，计算量化指标 (TVD, JSD)，并保存为 PDF，
+    最后在控制台格式化输出评估排行榜。
     """
-    # 1. 获取基准图 (根据 Main 逻辑，这里是 Wrapper)
-    G_normal_nx = normal_wrapper.graph
+    # 1. 设置字体家族为 macOS 内置的通用支持中文的字体
+    plt.rcParams['font.sans-serif'] = ['Arial Unicode MS'] 
 
-    # 2. 计算基准分布数据
+    # 2. 解决负号 '-' 显示为方块的问题
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    # 3. 计算基准分布数据
     x_base, y_base = get_pmf_data(G_normal_nx)
     
     # 构造基准概率字典 {degree: prob}
@@ -90,12 +91,13 @@ def compare_address_degree(normal_wrapper, mixed_dict, max_x_limit=15, output_di
         markerfacecolor="none",
         markeredgewidth=2,
         alpha=0.4,
-        label="Baseline: Normal Traffic",
+        label="Baseline",
         zorder=1,
     )
 
     # --- 样式定义 ---
     styles = [
+        {"color": "#FF7F0E", "marker": "X", "ls": "-"},   # 橙色 (Normal Injection)
         {"color": "#D62728", "marker": "^", "ls": "--"},  # 深红
         {"color": "#1F77B4", "marker": "s", "ls": "-."},  # 深蓝
         {"color": "#2CA02C", "marker": "D", "ls": ":"},   # 深绿
@@ -103,30 +105,37 @@ def compare_address_degree(normal_wrapper, mixed_dict, max_x_limit=15, output_di
     ]
 
     num_scenarios = len(mixed_dict)
+    
+    # === 新增：用于收集量化指标的列表 ===
+    metrics_board = []
 
     for i, (label_name, G_mixed_nx) in enumerate(mixed_dict.items()):
         # 获取混合图 PMF
         x_mix, y_mix = get_pmf_data(G_mixed_nx)
         
         # === 计算量化指标 ===
-        # 1. 数据对齐
         mix_prob_map = dict(zip(x_mix, y_mix))
         all_degrees = sorted(set(base_prob_map.keys()) | set(mix_prob_map.keys()))
         
-        # 2. 构造向量
         P = np.array([base_prob_map.get(k, 0) for k in all_degrees])
         Q = np.array([mix_prob_map.get(k, 0) for k in all_degrees])
         
-        # 3. 计算指标
         tvd = 0.5 * np.sum(np.abs(P - Q))
         jsd = jensenshannon(P, Q)
         
-        # 4. 格式化图例
-        legend_label = f"{label_name}\n(TVD={tvd:.4f}, JSD={jsd:.4f})"
+        # 将计算结果存入列表
+        metrics_board.append({
+            "方案 (Scheme)": label_name,
+            "TVD": tvd,
+            "JSD": jsd
+        })
+        
+        # 图例保持清爽
+        legend_label = f"{label_name}"
 
         # 计算 Jitter
         if num_scenarios > 1:
-            offset = (i - (num_scenarios - 1) / 2) * 0.15 
+            offset = (i - (num_scenarios - 1) / 2) * 0.1
         else:
             offset = 0
 
@@ -154,12 +163,12 @@ def compare_address_degree(normal_wrapper, mixed_dict, max_x_limit=15, output_di
     plt.ylim(-0.02, 1.05)
     plt.xticks(np.arange(1, max_x_limit + 1, 1))
 
-    plt.xlabel("Degree k (Linear Scale)", fontsize=14, fontweight="bold")
-    plt.ylabel("Probability P(K=k)", fontsize=14, fontweight="bold")
-    plt.title("Degree Distribution Comparison & Quantified Similarity", fontsize=16, pad=20)
+    plt.xlabel("地址中心度", fontsize=14, fontweight="bold")
+    plt.ylabel("分布概率", fontsize=14, fontweight="bold")
+    plt.title("地址中心度分布概率对比", fontsize=16, pad=20)
 
     # 图例设置
-    plt.legend(fontsize=10, frameon=True, fancybox=True, shadow=True, loc="upper right")
+    plt.legend(fontsize=11, frameon=True, fancybox=True, shadow=True, loc="upper right")
     plt.grid(True, which="major", linestyle="--", alpha=0.4, color="gray")
     plt.tight_layout()
 
@@ -168,10 +177,29 @@ def compare_address_degree(normal_wrapper, mixed_dict, max_x_limit=15, output_di
         os.makedirs(output_dir)
         
     save_path = os.path.join(output_dir, "Degree_Distribution_Comparison.pdf")
-    
-    # bbox_inches='tight' 防止图例或标签被裁剪
     plt.savefig(save_path, dpi=300, format='pdf', bbox_inches='tight')
-    print(f"结果图已保存至: {save_path}")
+    print(f"\n[完成] 分布图已保存至: {save_path}")
+
+    # ==========================================
+    # 新增：控制台格式化输出量化指标排行榜
+    # ==========================================
+    print("\n" + "=" * 55)
+    print("   地址中心度分布差异评估 (量化指标排行榜)")
+    print("=" * 55)
+    
+    # 转换为 DataFrame 进行美化和排序
+    df_metrics = pd.DataFrame(metrics_board)
+    
+    # 根据 TVD 从小到大排序 (值越小，与基线越相似)
+    df_metrics = df_metrics.sort_values(by="TVD", ascending=True).reset_index(drop=True)
+    
+    # 格式化浮点数，保留4位小数
+    df_metrics['TVD'] = df_metrics['TVD'].map('{:.4f}'.format)
+    df_metrics['JSD'] = df_metrics['JSD'].map('{:.4f}'.format)
+    
+    # 打印表格
+    print(df_metrics.to_string(index=True))
+    print("=" * 55 + "\n")
 
     plt.show()
 
@@ -244,13 +272,19 @@ def _compute_distributions(G_normal, mixed_dict, top_k=8):
 
     return labels, P, Q_dict, score_board
 
-# ==========================================
-# 方法 1：修改版 - 独立绘图 (指标在图例)
-# ==========================================
-def compare_transaction_degree(normal_wrapper, mixed_dict, top_k=8, output_dir="."):
-    G_normal = normal_wrapper.graph if hasattr(normal_wrapper, 'graph') else normal_wrapper
-    
-    # 调用公共计算逻辑
+
+def compare_transaction_degree(G_normal, mixed_dict, top_k=8, output_dir="."):
+    """
+    绘制交易结构分布对比图
+    修改点：
+    1. 统一纵坐标范围 (Y-Axis Limit)
+    2. 图例汉化 (Chinese Legends)
+    """
+    # 1. 设置字体 (确保中文正常显示)
+    plt.rcParams['font.sans-serif'] = ['Arial Unicode MS'] 
+    plt.rcParams['axes.unicode_minus'] = False
+
+    # 2. 调用公共计算逻辑获取数据
     labels, P, Q_dict, score_board = _compute_distributions(G_normal, mixed_dict, top_k)
     
     if not os.path.exists(output_dir):
@@ -258,6 +292,18 @@ def compare_transaction_degree(normal_wrapper, mixed_dict, top_k=8, output_dir="
 
     x = np.arange(len(labels))
     width = 0.35
+
+    # === 关键修改 1：计算统一的纵坐标上限 ===
+    # 找出基准 P 和所有混合方案 Q 中的最大概率值
+    max_p = np.max(P)
+    max_q = 0
+    for q_arr in Q_dict.values():
+        current_max = np.max(q_arr)
+        if current_max > max_q:
+            max_q = current_max
+    
+    # 设置上限为最大值的 1.15 倍，留出空间给图例
+    y_limit = max(max_p, max_q) * 1.15
 
     for item in score_board:
         label_name = item['Scheme']
@@ -267,17 +313,22 @@ def compare_transaction_degree(normal_wrapper, mixed_dict, top_k=8, output_dir="
         
         plt.figure(figsize=(10, 6))
 
-        # 绘制基准
-        plt.bar(x - width/2, P, width, label="Baseline: Normal", 
+        # 绘制基准 (中文图例)
+        plt.bar(x - width/2, P, width, label="baseline", 
                 color="#1F77B4", alpha=0.85, edgecolor="black", zorder=2)
 
-        # 绘制混合 (图例中包含指标)
-        legend_label = f"Mixed: {label_name}\n(TVD={tvd:.4f}, JSD={jsd:.4f})"
+        # 绘制混合 (中文图例 + 指标)
+        # 格式化字符串：将方案名和指标分行显示
+        legend_label = f"{label_name}"
+        
         plt.bar(x + width/2, Q, width, label=legend_label,
                 color="#D62728", alpha=0.85, edgecolor="black", hatch="//", zorder=2)
 
-        plt.ylabel("Probability", fontsize=12, fontweight="bold")
-        plt.title(f"Transaction Structure Distribution ({label_name})", fontsize=14, pad=15)
+        # === 关键修改 2：应用统一纵坐标 ===
+        plt.ylim(0, y_limit)
+
+        plt.ylabel("概率", fontsize=12, fontweight="bold")
+        plt.title(f"交易结构分布对比 ({label_name})", fontsize=14, pad=15)
         plt.xticks(x, labels, fontsize=11)
         
         # 图例位置优化
@@ -295,86 +346,23 @@ def compare_transaction_degree(normal_wrapper, mixed_dict, top_k=8, output_dir="
     print(df_scores.to_string())
     return df_scores
 
-# ==========================================
-# 方法 2：新增 - 统一绘图 (Subplots)
-# ==========================================
-def compare_transaction_degree_union(normal_wrapper, mixed_dict, top_k=8, output_dir="."):
-    """
-    将所有方案的对比绘制在同一张大图中 (子图网格形式)
-    """
-    G_normal = normal_wrapper.graph if hasattr(normal_wrapper, 'graph') else normal_wrapper
-    
-    # 调用公共计算逻辑
-    labels, P, Q_dict, score_board = _compute_distributions(G_normal, mixed_dict, top_k)
-    
-    num_schemes = len(mixed_dict)
-    
-    # 动态计算网格布局 (例如 4个方案 -> 2x2, 3个方案 -> 1x3 或 2x2)
-    cols = 2 if num_schemes > 1 else 1
-    rows = math.ceil(num_schemes / cols)
-    
-    # 创建大图
-    fig, axes = plt.subplots(rows, cols, figsize=(7 * cols, 5 * rows), sharey=True)
-    axes = np.array(axes).reshape(-1) # 展平方便遍历
-    
-    x = np.arange(len(labels))
-    width = 0.35
-    
-    # 遍历每个方案画子图
-    for i, item in enumerate(score_board):
-        ax = axes[i]
-        label_name = item['Scheme']
-        Q = Q_dict[label_name]
-        tvd = item['TVD']
-        jsd = item['JSD']
-        
-        # 绘制
-        ax.bar(x - width/2, P, width, label="Baseline", 
-               color="#1F77B4", alpha=0.85, edgecolor="black", zorder=2)
-        
-        legend_label = f"{label_name}\n(TVD={tvd:.4f}, JSD={jsd:.4f})"
-        ax.bar(x + width/2, Q, width, label=legend_label,
-               color="#D62728", alpha=0.85, edgecolor="black", hatch="//", zorder=2)
-        
-        # 设置子图属性
-        ax.set_title(f"vs. {label_name}", fontsize=12, fontweight='bold')
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, fontsize=9)
-        ax.grid(axis="y", linestyle="--", alpha=0.3, zorder=1)
-        ax.legend(fontsize=9, loc="upper right")
-        
-        if i % cols == 0:
-            ax.set_ylabel("Probability", fontweight='bold')
-
-    # 隐藏多余的空子图 (如果有)
-    for j in range(i + 1, len(axes)):
-        fig.delaxes(axes[j])
-        
-    plt.suptitle(f"Transaction Structure Comparison (Top-{top_k})", fontsize=16, y=0.98)
-    plt.tight_layout()
-    
-    # 保存
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    save_path = os.path.join(output_dir, "Structure_Comparison_All_In_One.pdf")
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"\n[Success] 统一对比图已保存至: {save_path}")
     
 
 if __name__ == "__main__":
-    # 统计10个区块的正常交易
-    normal_tx = []
-    # 这里加载数据用于演示
-    for i in range(923800, 923801):
-        try:
-            filename = f"dataset/transactions_block_{i}.json"
-            file_transactions = load_transactions_from_file(filename)
-            # normal_tx.extend(file_transactions)
-            normal_tx.extend(random.sample(file_transactions, 600))
-        except Exception as e:
-            print(f"Skip {filename}: {e}")
+    base_tx = []
+    added_normal_tx = [] # 新增：用于混合的正常交易组
+    random.seed(42)    
+    for i in range(923800, 923810):
+        filename = f"dataset/transactions_block_{i}.json"
+        file_transactions = load_transactions_from_file(filename)
+        # base_tx.extend( file_transactions)
+        base_tx.extend( random.sample(file_transactions, min(250, len(file_transactions))))
+
+    for i in range(923840, 923850):
+        filename = f"dataset/transactions_block_{i}.json"
+        file_transactions = load_transactions_from_file(filename)
+        added_normal_tx.extend(random.sample(file_transactions, min(80, len(file_transactions))))
+
 
     # 加载各种隐蔽交易数据
     GraphShadow_tx = load_transactions_from_file(
@@ -390,30 +378,55 @@ if __name__ == "__main__":
         "CompareMethod/BlockWhisper/BlockWhisper_transactions.json"
     )
     
-    normal_graph = constuct_graph(normal_tx)
-
+    base_graph = constuct_graph(base_tx).graph
+    added_normal_graph = constuct_graph(added_normal_tx).graph
+    graphshadow_graph = constuct_graph(GraphShadow_tx).graph
+    ddsac_graph = constuct_graph(DDSAC_tx).graph
+    gbctd_graph = constuct_graph(GBCTD_tx).graph
+    blockwhisper_graph = constuct_graph(BlockWhisper_tx).graph
+    
+    merge_normal_graph = merge_graphs(base_graph, added_normal_graph)
+    merge_GraphShadow_graph = merge_graphs(base_graph, graphshadow_graph)
+    merge_DDSAC_graph = merge_graphs(base_graph, ddsac_graph)
+    merge_GBCTD_graph = merge_graphs(base_graph, gbctd_graph)
+    merge_BlockWhisper_graph = merge_graphs(base_graph, blockwhisper_graph)
+    
     scenarios = {
-        "GraphShadow": merge_graphs(normal_graph, constuct_graph(GraphShadow_tx)),
-        "DDSAC": merge_graphs(normal_graph, constuct_graph(DDSAC_tx)),
-        "GBCTD": merge_graphs(normal_graph, constuct_graph(GBCTD_tx)),
-        "BlockWhisper": merge_graphs(normal_graph, constuct_graph(BlockWhisper_tx)),
+        # === 新增对照组 ===
+        "Normal": merge_normal_graph,
+        "GraphShadow": merge_GraphShadow_graph,
+        "DDSAC": merge_DDSAC_graph,
+        "GBCTD": merge_GBCTD_graph,
+        "BlockWhisper": merge_BlockWhisper_graph,
     }
     
-    # === 新增：打印节点数量统计 ===
-    print("\n" + "="*40)
-    print("   图规模统计 (Node Counts)")
-    print("="*40)
+    # === 新增：打印节点数量与交易数量统计 ===
+    print("\n" + "="*55)
+    print("   图规模统计 (Nodes & Transactions)")
+    print("="*55)
     
-    # normal_graph 是 Wrapper 类，需要访问 .graph 属性
-    print(f"{'Normal (Baseline)':<20} : {normal_graph.graph.number_of_nodes()} nodes")
+    # 定义一个临时函数用于计算交易节点数
+    def get_tx_count(G):
+        return sum(1 for n in G.nodes() if G.nodes[n].get("node_type") == "transaction")
     
-    # scenarios 中的值是 merge_graphs 返回的 NetworkX 对象，直接调用 number_of_nodes()
+    # 1. 打印 Baseline (注意：base_graph 是 Wrapper，需取 .graph)
+    base_node_count = base_graph.number_of_nodes()
+    base_tx_count = get_tx_count(base_graph)
+    
+    print(f"{'Normal (Baseline)':<20} : {base_node_count:<5} nodes | {base_tx_count:<5} txs")
+    
+    # 2. 打印 Scenarios (注意：scenarios 里的值已经是 NetworkX 对象)
     for name, G_mixed in scenarios.items():
-        print(f"{name:<20} : {G_mixed.number_of_nodes()} nodes")
-    print("="*40 + "\n")
+        node_count = G_mixed.number_of_nodes()
+        tx_count = get_tx_count(G_mixed)
+        
+        print(f"{name:<20} : {node_count:<5} nodes | {tx_count:<5} txs")
+        
+    print("="*55 + "\n")
+
 
     # print(">>> 开始绘制地址中心度分布对比图...")
-    # compare_address_degree(normal_graph, scenarios, 15, 'experiment/')
+    # compare_address_degree(base_graph, scenarios, 10, 'experiment/')
 
     print(">>> 开始绘制交易结构对比图...")
-    compare_transaction_degree_union(normal_graph, scenarios, 8, 'experiment/')
+    compare_transaction_degree(base_graph, scenarios, 8, 'experiment/')

@@ -7,377 +7,396 @@ from graphanalysis.sample_transaction import (
 )
 from addressandtransaction import constuct_graph, merge_graphs
 import random
-
-
-# ---------------------------------------------------------
-# 2. 论文核心检测算法实现
-# ---------------------------------------------------------
-class CovertTransactionDetector:
-    def __init__(self, raw_graph_obj):
-        """
-        :param raw_graph_obj: BitcoinTransactionGraph 的实例
-        """
-        self.raw_graph = raw_graph_obj.graph
-
-        # 论文 Table I 中定义的阈值 (Thresholds) [cite: 462]
-        # 注意：论文逻辑是 |Th - D| <= epsilon 为隐蔽交易
-        # 对于出度方差，正常交易方差大，隐蔽交易方差小(接近0)。
-        # 论文设定 Out-degree Variance Th=1，这看起来是指正常交易的基准。
-        # 但根据 Fig 4 和文字描述，隐蔽交易特征值落在特定范围内。
-        # 这里的实现逻辑遵循：隐蔽交易趋向于链状，方差极低。
-        self.THRESHOLDS = {
-            "out_degree_variance": 1.0,
-            "in_degree_variance": 0.01,  # 新增：入度方差阈值 (Table I)
-            "path_ratio": 0.5,
-        }
-
-        # 论文 Section V.A.3 提到的偏移量，推荐使用 0.01 或 1 [cite: 458, 480]
-        self.EPSILON = {
-            "out_degree": 0.04,  # 论文推荐范围
-            "in_degree": 0.04,  # 新增：入度方差的偏移量
-            "path_ratio": 0.04,  # 根据 Fig 7(d) 调整
-        }
-
-    def _build_address_interaction_graph(self):
-        """
-        将原始的[地址-交易-地址]二部图转换为论文所需的[地址-地址]交互图。
-        论文引用[cite: 194]: combine transaction bipartite graphs... to draw a transaction graph.
-        """
-        addr_graph = nx.DiGraph()
-
-        # 遍历所有交易节点
-        tx_nodes = [
-            n
-            for n, d in self.raw_graph.nodes(data=True)
-            if d.get("node_type") == "transaction"
-        ]
-
-        for tx in tx_nodes:
-            # 获取该交易的输入地址（前驱）和输出地址（后继）
-            inputs = [u for u, v, d in self.raw_graph.in_edges(tx, data=True)]
-            outputs = [v for u, v, d in self.raw_graph.out_edges(tx, data=True)]
-
-            # 建立直接的资金流向边：Input Address -> Output Address
-            for i_addr in inputs:
-                for o_addr in outputs:
-                    if i_addr != o_addr:  # 避免自环
-                        addr_graph.add_edge(i_addr, o_addr)
-
-        return addr_graph
-
-    def _calculate_metrics(self, subgraph):
-        """
-        计算论文 Section III.C 提到的结构度量指标
-        """
-        num_nodes = subgraph.number_of_nodes()
-        if num_nodes == 0:
-            return None
-
-        # 1. 计算出度方差 (Variance of Out-Degree) [cite: 237]
-        out_degrees = [d for n, d in subgraph.out_degree()]
-        var_out_degree = np.var(out_degrees)
-
-        # 2. 新增：计算入度方差 (Variance of In-Degree) [cite: 225, 237]
-        # 论文指出入度方差也是区分隐蔽交易的重要特征
-        in_degrees = [d for n, d in subgraph.in_degree()]
-        var_in_degree = np.var(in_degrees)
-
-        # 3. 计算最长路径 (Longest Path Length) [cite: 231]
-        longest_path = 0
-        # 针对有向图计算所有节点间的最短路径长度
-        # dict(nx.·(subgraph)) 返回迭代器，需要转换或遍历
-        all_shortest_paths = dict(nx.all_pairs_shortest_path_length(subgraph))
-        for source, targets in all_shortest_paths.items():
-            if targets:
-                # 获取该源节点到所有其他可达节点的最短路径长度中的最大值
-                max_dist_from_source = max(targets.values())
-                if max_dist_from_source > longest_path:
-                    longest_path = max_dist_from_source
-
-        path_ratio = longest_path / num_nodes if num_nodes > 0 else 0
-        return {
-            "var_out_degree": var_out_degree,
-            "var_in_degree": var_in_degree,  # 新增返回
-            "path_ratio": path_ratio,
-            "num_nodes": num_nodes,
-            "num_edges": subgraph.number_of_edges(),
-        }
-
-    def detect(self):
-        """
-        执行检测流程，对应论文 Fig. 4
-        修改：返回整张图的最终判定结果 ("Covert" 或 "Normal")
-        判定标准：如果被判定为隐蔽的子图数量超过有效子图总数的 1/3，则整张图视为隐蔽。
-        """
-        # 1. 构建地址交互图
-        G = self._build_address_interaction_graph()
-
-        # 2. 分割连通子图
-        # 注意：这里使用弱连通分量，适合有向图
-        subgraphs = [G.subgraph(c).copy() for c in nx.weakly_connected_components(G)]
-
-        # 初始化计数器
-        valid_subgraphs_count = 0  # 满足边数要求的有效子图总数
-        covert_subgraphs_count = 0  # 被判定为隐蔽特征的子图数
-
-        for sub_g in subgraphs:
-            # 过滤过小的噪声子图（通常边数太少无法计算统计特征）
-            if sub_g.number_of_edges() < 3:
-                continue
-
-            metrics = self._calculate_metrics(sub_g)
-            if not metrics:
-                continue
-
-            # 标记为一个有效子图
-            valid_subgraphs_count += 1
-
-            # 3. 判定逻辑 (Detection Logic)
-            # 依据论文公式: |Th - D| <= epsilon
-
-            # --- 指标 A: 出度方差 ---
-            dist_out_degree = abs(
-                self.THRESHOLDS["out_degree_variance"] - metrics["var_out_degree"]
-            )
-            is_covert_by_out = dist_out_degree <= self.EPSILON["out_degree"]
-
-            # --- 指标 B: 入度方差 ---
-            dist_in_degree = abs(
-                self.THRESHOLDS["in_degree_variance"] - metrics["var_in_degree"]
-            )
-            is_covert_by_in = dist_in_degree <= self.EPSILON["in_degree"]
-
-            # --- 指标 C: 路径/节点比率 ---
-            dist_path = abs(self.THRESHOLDS["path_ratio"] - metrics["path_ratio"])
-            is_covert_by_path = dist_path <= self.EPSILON["path_ratio"]
-
-            # 4. 子图级综合判定 (Subgraph Verdict)
-            is_subgraph_covert = False
-
-            reasons = []
-            if is_covert_by_out:
-                reasons.append("Out-Degree")
-            if is_covert_by_in:
-                reasons.append("In-Degree")
-            if is_covert_by_path:
-                reasons.append("Path-Ratio")
-
-            # 判定条件：
-            # 条件1：满足2个及以上特征
-            # 条件2：或者单满足最强的“出度方差”特征 (根据你之前的逻辑)
-            if len(reasons) >= 2 or is_covert_by_out:
-                is_subgraph_covert = True
-
-            if is_subgraph_covert:
-                covert_subgraphs_count += 1
-
-        # 5. 图级最终判定 (Graph-level Verdict)
-        # 防止除以零（如果图是空的或者全是碎片）
-        if valid_subgraphs_count == 0:
-            return "Normal"
-
-        # 计算隐蔽子图占比
-        ratio = covert_subgraphs_count / valid_subgraphs_count
-
-        # 阈值判定：超过 1/3 (0.333...) 则判定为 Covert
-        if ratio > (1 / 3):
-            return "Covert"
-        else:
-            return "Normal"
-
-
-# ---------------------------------------------------------
-# 3. 使用示例
-# ---------------------------------------------------------
-# if __name__ == "__main__":
-#     # 统计10个区块的正常交易
-#     # normal_tx = []
-#     # # 这里加载数据用于演示
-#     # for i in range(923800, 923801):
-#     #     filename = f"dataset/transactions_block_{i}.json"
-#     #     file_transactions = load_transactions_from_file(filename)
-#     #     # normal_tx.extend(file_transactions)
-#     #     normal_tx.extend(random.sample(file_transactions, 600))
-
-#     # 加载各种隐蔽交易数据
-#     GraphShadow_tx = load_transactions_from_file(
-#         "constructtx/GraphShadow_transactions.json"
-#     )
-#     DDSAC_tx = load_transactions_from_file(
-#         "CompareMethod/DDSAC/DDSAC_transactions.json"
-#     )
-#     GBCTD_tx = load_transactions_from_file(
-#         "CompareMethod/GBCTD/GBCTD_transactions.json"
-#     )
-#     BlockWhisper_tx = load_transactions_from_file(
-#         "CompareMethod/BlockWhisper/BlockWhisper_transactions.json"
-#     )
-    
-#     covert_filename = f"CompareMethod/DDSAC/DDSAC_transactions.json"
-#     for i in range(1, 101):  # 1到100
-#         # 生成文件名
-#         covert_filename = f"CompareMethod/DDSAC/dataset/DDSAC_transactions_{i}.json"
-
-#         # covert_filename = f"constructtx/dataset/GraphShadow_transactions_{i}.json"
-#         covert_tx = load_transactions_from_file(covert_filename)
-#         graph = constuct_graph(covert_tx)
-#         # 执行检测
-#         detector = CovertTransactionDetector(graph)
-#         detection_results = detector.detect()
-#         print(f"隐蔽交易检测结果: {detection_results}")
-        
-        
-#         normal_filename = f"dataset/transactions_block_{923800+i}.json"
-#         normal_tx = load_transactions_from_file(normal_filename)
-#         graph = constuct_graph(normal_tx)
-#         # 执行检测
-#         detector = CovertTransactionDetector(graph)
-#         detection_results = detector.detect()
-#         print(f"正常交易检测结果: {detection_results}")
-        
-
-        
-  
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, confusion_matrix
+from collections import deque
+from tqdm import tqdm  # 用于显示进度条，如果没有请 pip install tqdm
+import json
+import glob
+import itertools
+
 
 # ==========================================
-# 假设引用的外部方法 (请确保在项目中可用)
-# from your_module import load_transactions_from_file, constuct_graph, CovertTransactionDetector
+# 1. 注入特征指纹 (基于你提供的数据)
 # ==========================================
+METHOD_FINGERPRINTS = {
+    "GraphShadow": {
+        "out_degree_variance": 0.4683,
+        "in_degree_variance": 0.2562,
+        "path_ratio": 0.6402
+    },
+    "BlockWhisper": {
+        "out_degree_variance": 0.3104,
+        "in_degree_variance": 0.3026,
+        "path_ratio": 0.9362
+    },
+    "DDSAC": {
+        "out_degree_variance": 0.9956,
+        "in_degree_variance": 0.0622,
+        "path_ratio": 0.5333
+    },
+    "GBCTD": {
+        "out_degree_variance": 27.8462,
+        "in_degree_variance": 28.4068 ,
+        "path_ratio": 0.1112
+    }
+}
 
-def run_comparative_evaluation():
-    # 初始化存储真实标签和预测标签
-    y_true = [] 
-    y_pred = []
+
+class TargetedTransactionDetector:
+    def __init__(self, raw_graph_obj, thresholds, epsilon=0.1, min_edges=0):
+        """
+        :param thresholds: 针对特定方法定制的阈值字典
+        :param epsilon: 检测容忍度
+        """
+        self.raw_graph = raw_graph_obj.graph
+        self.min_edges = min_edges
+        
+        # 使用传入的针对性阈值
+        self.THRESHOLDS = thresholds
+
+        # 动态设置 Epsilon
+        self.EPSILON = {
+            "out_degree": epsilon,
+            "in_degree": epsilon,
+            "path_ratio": epsilon,
+        }
+
+    def _build_address_interaction_graph(self):
+        addr_graph = nx.DiGraph()
+        tx_nodes = [n for n, d in self.raw_graph.nodes(data=True) if d.get("node_type") == "transaction"]
+        for tx in tx_nodes:
+            inputs = [u for u, v, d in self.raw_graph.in_edges(tx, data=True)]
+            outputs = [v for u, v, d in self.raw_graph.out_edges(tx, data=True)]
+            for i_addr in inputs:
+                for o_addr in outputs:
+                    if i_addr != o_addr:
+                        addr_graph.add_edge(i_addr, o_addr)
+        return addr_graph
+
+    def _calculate_metrics(self, subgraph):
+        num_nodes = subgraph.number_of_nodes()
+        if num_nodes == 0: return None
+        
+        out_degrees = [d for n, d in subgraph.out_degree()]
+        var_out_degree = np.var(out_degrees) if out_degrees else 0
+        
+        in_degrees = [d for n, d in subgraph.in_degree()]
+        var_in_degree = np.var(in_degrees) if in_degrees else 0
+        
+        longest_path = 0
+        try:
+            if num_nodes > 0:
+                if nx.is_directed_acyclic_graph(subgraph):
+                    longest_path = len(nx.dag_longest_path(subgraph))
+                else:
+                    all_shortest_paths = dict(nx.all_pairs_shortest_path_length(subgraph))
+                    for source, targets in all_shortest_paths.items():
+                        if targets:
+                            longest_path = max(longest_path, max(targets.values()))
+        except: pass
+
+        path_ratio = longest_path / num_nodes if num_nodes > 0 else 0
+        return {
+            "var_out_degree": var_out_degree,
+            "var_in_degree": var_in_degree,
+            "path_ratio": path_ratio,
+        }
+
+    def detect_detailed(self):
+        G = self._build_address_interaction_graph()
+        subgraphs = [G.subgraph(c).copy() for c in nx.weakly_connected_components(G)]
+        detected_subgraphs_nodes = []
+
+        for sub_g in subgraphs:
+            if sub_g.number_of_edges() < self.min_edges: continue
+
+            metrics = self._calculate_metrics(sub_g)
+            if not metrics: continue
+
+            # 判定逻辑：差异 <= Epsilon (因为阈值就是该方法的特征中心)
+            dist_out = abs(self.THRESHOLDS["out_degree_variance"] - metrics["var_out_degree"])
+            is_covert_out = dist_out <= self.EPSILON["out_degree"]
+
+            dist_in = abs(self.THRESHOLDS["in_degree_variance"] - metrics["var_in_degree"])
+            is_covert_in = dist_in <= self.EPSILON["in_degree"]
+
+            dist_path = abs(self.THRESHOLDS["path_ratio"] - metrics["path_ratio"])
+            is_covert_path = dist_path <= self.EPSILON["path_ratio"]
+
+            # 判定条件：满足任意两个特征 或 满足出度特征
+            reasons = [x for x in [is_covert_out, is_covert_in, is_covert_path] if x]
+            if len(reasons) >= 2 or is_covert_out:
+                detected_subgraphs_nodes.append(set(sub_g.nodes()))
+        
+        return detected_subgraphs_nodes
+
+        
+def generate_sliding_window_dataset(
+    source_dir='dataset',
+    output_dir='experiment/detectiondataset/background_dataset',
+    start_height=923800,
+    end_height=924300,
+    window_size=9
+):
+    """
+    使用滑动窗口生成聚合的区块交易数据集（扁平化合并）。
+    窗口策略: [H, H + window_size - 1]
+    输出格式: 一个包含该窗口内所有交易的长列表 [tx1, tx2, ..., txN]
+    """
     
-    # 统计计数器 (用于实时打印)
-    stats = {
-        'TP': 0, # Covert 被检测为 Covert (检测成功)
-        'FN': 0, # Covert 被检测为 Normal (逃逸/漏报)
-        'TN': 0, # Normal 被检测为 Normal (正确放行)
-        'FP': 0  # Normal 被检测为 Covert (误报)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Created output directory: {output_dir}")
+
+    # 用于缓存当前窗口的区块数据
+    window_buffer = deque()
+
+    print(f"Starting processing from {start_height} to {end_height} (Window: {window_size})...")
+
+    # 1. 预填充前 (window_size - 1) 个区块
+    for i in range(window_size - 1):
+        current_h = start_height + i
+        file_path = os.path.join(source_dir, f"transactions_block_{current_h}.json")
+        
+        entry = {'height': current_h, 'data': []} # 默认为空列表，防止 None 报错
+        
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        entry['data'] = data
+                    else:
+                        print(f"Warning: Block {current_h} format incorrect (expected list).")
+            except Exception as e:
+                print(f"Error reading block {current_h}: {e}")
+        else:
+            print(f"Warning: Block {current_h} not found.")
+            
+        window_buffer.append(entry)
+
+    # 2. 主循环：滑动并保存
+    loop_start = start_height + window_size - 1
+    
+    for current_h in tqdm(range(loop_start, end_height + 1), desc="Processing Windows"):
+        
+        # --- A. 读取新的一块 (右边滑入) ---
+        file_path = os.path.join(source_dir, f"transactions_block_{current_h}.json")
+        new_block_entry = {'height': current_h, 'data': []}
+        
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        new_block_entry['data'] = data
+            except Exception as e:
+                print(f"Error reading block {current_h}: {e}")
+        
+        window_buffer.append(new_block_entry)
+
+        # --- B. 扁平化合并并保存 (核心修改) ---
+        
+        window_start_h = window_buffer[0]['height']
+        window_end_h = current_h
+        
+        # 检查数据完整性：如果所有块的数据都不是空的（根据你的需求，也可以允许部分为空）
+        # 这里假设只要文件存在就要合并
+        
+        # *** 关键修改开始 ***
+        # 将 deque 中存储的 9 个列表合并成 1 个大列表
+        flat_transactions = []
+        for block_entry in window_buffer:
+            # block_entry['data'] 本身是一个列表 [tx, tx, ...]
+            # 使用 extend 将其元素追加到 flat_transactions，而不是 append 列表本身
+            flat_transactions.extend(block_entry['data'])
+        # *** 关键修改结束 ***
+
+        # 如果合并后的列表不为空，则保存
+        if flat_transactions:
+            output_filename = f"transactions_block_{window_start_h}_{window_end_h}.json"
+            output_path = os.path.join(output_dir, output_filename)
+            
+            with open(output_path, 'w', encoding='utf-8') as f_out:
+                json.dump(flat_transactions, f_out) # 不使用 indent 以节省空间，如需可加 indent=2
+        
+        # --- C. 移除最旧的一块 (左边滑出) ---
+        window_buffer.popleft()
+
+    print("Processing complete.")
+
+
+# ==========================================
+# 4. 核心实验逻辑：针对性检测 (详细输出版)
+# ==========================================
+def run_targeted_detection_detailed():
+    # 1. 配置
+    bg_file = "experiment/detectiondataset/background_dataset/transactions_block_923800_923808.json"
+    epsilon_values = [0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
+    
+    methods_files = {
+        "GraphShadow": "CompareMethod/GraphShadow/dataset/GraphShadow_transactions_*.json",
+        "BlockWhisper": "CompareMethod/BlockWhisper/dataset/BlockWhisper_transactions_*.json",
+        "DDSAC": "CompareMethod/DDSAC/dataset/DDSAC_transactions_*.json",
+        "GBCTD": "CompareMethod/GBCTD/dataset/GBCTD_transactions_*.json"
     }
 
-    print("Starting Comparative Evaluation (Covert vs. Normal)...")
-    print("-" * 60)
-
-    # ==========================================
-    # 循环 100 组 (每组包含 1个隐蔽 + 1个正常)
-    # ==========================================
-    for i in range(1, 101):
-        # -------------------------------------------------
-        # 1. 检测隐蔽交易样本 (Positive Sample, Label=1)
-        # -------------------------------------------------
-        covert_filename = f"constructtx/dataset/GraphShadow_transactions_{i}.json"
-        tx_list = load_transactions_from_file(covert_filename)
-        graph = constuct_graph(tx_list)
-        detector = CovertTransactionDetector(graph)
-        
-        # result 预期为 "Covert" 或 "Normal"
-        res = detector.detect()
-        
-        # 记录数据
-        y_true.append(1) # 真实是隐蔽交易
-        if res == "Covert":
-            y_pred.append(1)
-            stats['TP'] += 1
-        else:
-            y_pred.append(0)
-            stats['FN'] += 1
-           
- 
-
-        # -------------------------------------------------
-        # 2. 检测正常交易样本 (Negative Sample, Label=0)
-        # -------------------------------------------------
-        normal_filename = f"dataset/transactions_block_{923900+i}.json"
-        tx_list = load_transactions_from_file(normal_filename)
-        graph = constuct_graph(tx_list)
-        detector = CovertTransactionDetector(graph)
-        res = detector.detect()
-        # 记录数据
-        y_true.append(0) # 真实是正常交易
-        if res == "Covert":
-            y_pred.append(1) # 误报
-            stats['FP'] += 1
-        else:
-            y_pred.append(0) # 正确判断
-            stats['TN'] += 1
-
-        # 每10轮打印一次简报
-        if i % 10 == 0:
-            print(f"Progress {i}/100 | TP:{stats['TP']} FN:{stats['FN']} TN:{stats['TN']} FP:{stats['FP']}")
-
-    # ==========================================
-    # 3. 计算最终指标
-    # ==========================================
-    # 防止除零错误
-    acc = accuracy_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred, zero_division=0)       # 针对隐蔽交易的检出率
-    precision = precision_score(y_true, y_pred, zero_division=0) # 检出的样本中有多少是真的隐蔽交易
-    f1 = f1_score(y_true, y_pred, zero_division=0)
+    print(f"[*] Loading Background: {os.path.basename(bg_file)}")
+    full_bg_txs = load_transactions_from_file(bg_file)
+    bg_txs = full_bg_txs[:2500]
     
-    # 计算误报率 (False Positive Rate) = FP / (FP + TN)
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
-    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+    # --- 预处理背景 ---
+    print("[*] Pre-processing background graph...")
+    bg_graph_obj = constuct_graph(bg_txs)
+    temp_detector = TargetedTransactionDetector(bg_graph_obj, thresholds=METHOD_FINGERPRINTS["DDSAC"]) 
+    bg_G = temp_detector._build_address_interaction_graph()
+    bg_subgraphs = [bg_G.subgraph(c).copy() for c in nx.weakly_connected_components(bg_G) 
+                    if bg_G.subgraph(c).number_of_edges() >= 1]
+    
+    bg_metrics_list = []
+    for sub_g in bg_subgraphs:
+        m = temp_detector._calculate_metrics(sub_g)
+        if m: bg_metrics_list.append(m)
+    
+    total_bg_components = len(bg_metrics_list)
+    print(f"[*] Background contains {total_bg_components} valid components (Bg.Comp).")
 
-    print("\n" + "="*40)
-    print("【最终实验结果统计】")
-    print("="*40)
-    print(f"Total Samples Processed : {len(y_true)}")
-    print("-" * 40)
-    print(f"Accuracy (准确率)       : {acc:.2%}")
-    print(f"Recall (检出率)         : {recall:.2%}  (检测器抓住了多少隐蔽交易)")
-    print(f"Precision (精确率)      : {precision:.2%}")
-    print(f"F1 Score               : {f1:.4f}")
-    print(f"False Positive Rate    : {fpr:.2%}  (误将正常交易判为隐蔽的概率)")
-    print("="*40)
+    all_results = []
+
+    # 2. 循环方法
+    for method_name, file_pattern in methods_files.items():
+        target_fingerprint = METHOD_FINGERPRINTS.get(method_name)
+        if not target_fingerprint: continue
+
+        covert_files = glob.glob(file_pattern)
+        try: covert_files.sort(key=lambda x: int(os.path.basename(x).split('_')[-1].split('.')[0]))
+        except: pass
+        target_files = covert_files[:100]
+        if not target_files: continue
+
+        print(f"\n>>> Targeting Method: {method_name} <<<")
+
+        # 3. 循环 Epsilon
+        for eps in epsilon_values:
+            
+            # --- A. 计算 FP (在背景中误报的数量) ---
+            fp_count_single_pass = 0
+            for m in bg_metrics_list:
+                dist_out = abs(target_fingerprint["out_degree_variance"] - m["var_out_degree"])
+                is_covert_out = dist_out <= eps
+                dist_in = abs(target_fingerprint["in_degree_variance"] - m["var_in_degree"])
+                is_covert_in = dist_in <= eps
+                dist_path = abs(target_fingerprint["path_ratio"] - m["path_ratio"])
+                is_covert_path = dist_path <= eps
+                
+                reasons = [x for x in [is_covert_out, is_covert_in, is_covert_path] if x]
+                if len(reasons) >= 2 or is_covert_out:
+                    fp_count_single_pass += 1
+            
+            # 缩放 FP: 因为我们即将跑 len(target_files) 次实验，
+            # 累计的 FP 应该是 单次背景FP * 实验次数
+            total_fp_scaled = fp_count_single_pass * len(target_files)
+            # 累计的背景分量总数
+            total_bg_scaled = total_bg_components * len(target_files)
+
+            fpr = fp_count_single_pass / total_bg_components if total_bg_components > 0 else 0
+
+            # --- B. 计算 TP (在隐蔽样本中抓到的数量) ---
+            sum_tp = 0
+            sum_total_real = 0
+
+            for cov_file in target_files:
+                cov_txs = load_transactions_from_file(cov_file)
+                cov_graph_obj = constuct_graph(cov_txs)
+                det = TargetedTransactionDetector(cov_graph_obj, thresholds=target_fingerprint, epsilon=eps, min_edges=0)
+                cov_G = det._build_address_interaction_graph()
+                real_comps = [c for c in nx.weakly_connected_components(cov_G) if cov_G.subgraph(c).number_of_edges() >= 1]
+                
+                sum_total_real += len(real_comps)
+
+                detected_nodes_list = det.detect_detailed()
+
+                for real_comp in real_comps:
+                    real_set = set(real_comp)
+                    is_hit = False
+                    for det_set in detected_nodes_list:
+                        if not real_set.isdisjoint(det_set):
+                            is_hit = True
+                            break
+                    if is_hit:
+                        sum_tp += 1
+            
+            # --- C. 汇总指标 ---
+            sum_fn = sum_total_real - sum_tp
+
+            recall = sum_tp / sum_total_real if sum_total_real > 0 else 0
+            precision = sum_tp / (sum_tp + total_fp_scaled) if (sum_tp + total_fp_scaled) > 0 else 0
+            f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+            all_results.append({
+                "Method": method_name,
+                "Epsilon": eps,
+                "Bg_Comp": total_bg_scaled,  # 累计背景分量
+                "Cov_Comp": sum_total_real,  # 累计隐蔽分量
+                "TP": sum_tp,
+                "FP": total_fp_scaled,       # 累计误报
+                "FN": sum_fn,
+                "Recall": recall,
+                "Precision": precision,
+                "F1_Score": f1,
+                "FP_Rate_on_Bg": fpr
+            })
 
     # ==========================================
-    # 4. 可视化 (混淆矩阵 + 柱状图)
+    # 5. 输出详细表格
     # ==========================================
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-
-    # --- 左图：混淆矩阵 ---
-    cm = confusion_matrix(y_true, y_pred, labels=[1, 0]) 
-    # 注意：这里 labels=[1,0] 是为了让左上角显示 TP (隐蔽被抓)，右下角 TN (正常放行)
+    print("\n" + "="*145)
+    print(f"{'TARGETED ATTACK SIMULATION RESULTS (Detailed)':^145}")
+    print("="*145)
     
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[0], annot_kws={"size": 16},
-                xticklabels=['Pred: Covert', 'Pred: Normal'],
-                yticklabels=['True: Covert', 'True: Normal'])
-    axes[0].set_title('Confusion Matrix', fontsize=14)
-    axes[0].set_xlabel('Predicted Label')
-    axes[0].set_ylabel('Ground Truth')
-
-    # --- 右图：指标统计 ---
-    metrics = {
-        'Accuracy': acc,
-        'Recall\n(Detection Rate)': recall,
-        'Precision': precision,
-        'F1 Score': f1
-    }
+    header = "{:<12} | {:<6} | {:<9} | {:<9} | {:<6} | {:<8} | {:<6} | {:<8} | {:<8} | {:<8} | {:<10}"
+    print(header.format("Method", "Eps", "Bg.Comp", "Cov.Comp", "TP", "FP", "FN", "Recall", "Precis.", "F1", "FP Rate"))
+    print("-" * 145)
     
-    # 绘制柱状图
-    colors = ['#d3d3d3', '#ff9999', '#66b3ff', '#99ff99']
-    bars = axes[1].bar(metrics.keys(), metrics.values(), color=colors, edgecolor='black')
+    df = pd.DataFrame(all_results)
     
-    axes[1].set_ylim(0, 1.1)
-    axes[1].set_title('Evaluation Metrics', fontsize=14)
-    axes[1].grid(axis='y', linestyle='--', alpha=0.5)
-
-    # 添加数值标签
-    for bar in bars:
-        height = bar.get_height()
-        axes[1].text(bar.get_x() + bar.get_width()/2., height + 0.02,
-                     f'{height:.2%}', ha='center', va='bottom', fontsize=12, fontweight='bold')
-
-    plt.tight_layout()
-    plt.show()
+    for method in methods_files.keys():
+        subset = df[df["Method"] == method]
+        for _, row in subset.iterrows():
+            print(header.format(
+                row['Method'],
+                str(row['Epsilon']),
+                str(row['Bg_Comp']),
+                str(row['Cov_Comp']),
+                str(row['TP']),
+                str(row['FP']),
+                str(row['FN']),
+                f"{row['Recall']:.4f}",
+                f"{row['Precision']:.4f}",
+                f"{row['F1_Score']:.4f}",
+                f"{row['FP_Rate_on_Bg']:.2%}"
+            ))
+        print("-" * 145)
+    
+    # 保存结果
+    df.to_csv("targeted_attack_results_detailed.csv", index=False)
+    print("[*] Results saved to targeted_attack_results_detailed.csv")
 
 if __name__ == "__main__":
-    run_comparative_evaluation()
+    run_targeted_detection_detailed()
+
+# if __name__ == "__main__":
+#     # generate_sliding_window_dataset(
+#     #     source_dir='dataset',               # 你的源文件目录
+#     #     output_dir='experiment/detectiondataset/background_dataset',     # 结果保存目录
+#     #     start_height=923900,
+#     #     end_height=924000,
+#     #     window_size=9
+#     # )
+#     # run_comprehensive_stealthiness_test("DDSAC")
+#     run_batch_block_stress_test()

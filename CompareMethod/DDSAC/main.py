@@ -130,14 +130,21 @@ def save_transactions_to_json(transaction_list, filename="my_transactions.json")
 
         
 if __name__ == "__main__":
-    msg_size_B = 4096
     
-    init_addr_num = 18
+    init_addr_num = 8
+    # for i in range(1,11):
+    #     msg_size_B = 1024 * i
+    #     rounds = math.ceil((msg_size_B * 8) / (init_addr_num * 128))
+    #     print(f"初始{init_addr_num}个地址，传输{rounds}轮交易")
+        
+    #     filename = f"CompareMethod/DDSAC/DDSAC_transactions_{msg_size_B}.json"
+    #     covert_tx = generate_1in2out_chain_transactions(n=init_addr_num, rounds=rounds)
+    #     save_transactions_to_json(covert_tx, filename)
     
-    rounds = math.ceil((msg_size_B * 8) / (init_addr_num * 128))
-    print(f"初始{init_addr_num}个地址，传输{rounds}轮交易")
     # 循环生成100组文件
-    for i in range(1, 101):  # 1到100
+    msg_size_B = 1024
+    rounds = math.ceil((msg_size_B * 8) / (init_addr_num * 128))
+    for i in range(1, 1001):  # 1到100
         # 生成文件名
         filename = f"CompareMethod/DDSAC/dataset/DDSAC_transactions_{i}.json"
         covert_tx = generate_1in2out_chain_transactions(n=init_addr_num, rounds=rounds)

@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     # get_blockId_list()
 
-    # save_block_transaction(927000, 927001)
+    save_block_transaction(923800, 924800)
 
 # # 最终以行分隔格式保存所有交易
 # with open("all_blocks_transactions_lines.json", "w", encoding="utf-8") as f:
